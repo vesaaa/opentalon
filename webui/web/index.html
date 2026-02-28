@@ -793,6 +793,87 @@
           ];
         }
 
+        // ── Interaction ───────────────────────────────────────────────────────────
+        function selectDevice(dev) {
+          selected.value = dev;
+          drawerOpen.value = true;
+          metrics.value = null;
+          fetchMetrics(dev.id);
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = setInterval(() => fetchMetrics(dev.id), 5000);
+          nextTick(initGauges);
+
+          // Highlight in G6
+          if (!g6Graph) return;
+          g6Graph.getNodes().forEach(n => g6Graph.setItemState(n, 'selected', false));
+          const node = g6Graph.findById(String(dev.id));
+          if (node) g6Graph.setItemState(node, 'selected', true);
+        }
+
+        async function joinDevice() {
+          if (!joinAddr.value.trim()) return;
+          const host = joinAddr.value.trim();
+          alert(`尝试用 SSH 纳管 ${host}... (此功能待后端实现)`);
+          joinAddr.value = '';
+        }
+
+        // ── Render G6 Topology ────────────────────────────────────────────────────
+        function renderG6(treeData) {
+          if (!document.getElementById('topo-canvas') || treeData.length === 0) return;
+          const { nodes, edges } = buildG6Data(treeData);
+
+          if (!g6Graph) {
+            const container = document.getElementById('topo-canvas');
+            g6Graph = new G6.Graph({
+              container,
+              width: container.clientWidth,
+              height: container.clientHeight,
+              fitView: true,
+              fitViewPadding: [40, 40, 40, 40],
+              modes: {
+                default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'click-select']
+              },
+              layout: {
+                type: 'dagre',
+                rankdir: 'TB',
+                nodesep: 50,
+                ranksep: 70
+              },
+              defaultNode: {
+                type: 'rect',
+                size: [120, 36],
+                style: { radius: 6, lineWidth: 1, stroke: '#30363d' },
+                labelCfg: { style: { fill: '#e6edf3', fontSize: 12 } }
+              },
+              defaultEdge: {
+                type: 'polyline',
+                style: { radius: 10, stroke: '#58a6ff', lineWidth: 1.5, endArrow: true }
+              },
+              nodeStateStyles: {
+                hover: { stroke: '#58a6ff', lineWidth: 2 },
+                selected: { stroke: '#58a6ff', lineWidth: 2, shadowColor: '#58a6ff', shadowBlur: 10 }
+              }
+            });
+
+            g6Graph.on('node:click', (e) => {
+              const deviceId = parseInt(e.item.getModel().id, 10);
+              const dev = allDevices.value.find(d => d.id === deviceId);
+              if (dev) selectDevice(dev);
+            });
+            g6Graph.on('node:mouseenter', ({ item }) => g6Graph.setItemState(item, 'hover', true));
+            g6Graph.on('node:mouseleave', ({ item }) => g6Graph.setItemState(item, 'hover', false));
+          }
+
+          g6Graph.data({ nodes, edges });
+          g6Graph.render();
+
+          // Sync selection
+          if (selected.value) {
+            const item = g6Graph.findById(String(selected.value.id));
+            if (item) g6Graph.setItemState(item, 'selected', true);
+          }
+        }
+
         onMounted(() => {
           fetchTree();
           setInterval(fetchTree, 30000);
