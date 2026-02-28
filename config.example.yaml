@@ -1,0 +1,36 @@
+# OpenTalon 示例配置文件
+# 将此文件重命名为 config.yaml 放在二进制文件同级目录或 ~/.opentalon/config.yaml
+# 环境变量（TALON_* 前缀）优先级高于本文件
+
+# ── Server ──────────────────────────────────────────────────────────────────
+server_host: "0.0.0.0"
+control_port: 6677   # Web UI + JWT-protected REST API
+data_port:    1616   # Agent data plane (Bearer token auth)
+
+db_driver: "sqlite"
+db_path:   "opentalon.db"
+# db_driver: "mysql"
+# db_dsn:   "user:pass@tcp(127.0.0.1:3306)/opentalon?charset=utf8mb4&parseTime=True"
+
+# ── Security ─────────────────────────────────────────────────────────────────
+# !! 生产环境必须修改以下三项 !!
+jwt_secret:  "OtLn$Xq7@wP2!mZ9#rK6^dV4&eA1*fY"   # 建议 32+ 字节随机字符串
+agent_token: "opentalon-secret-key-123"             # Agent 预共享密钥
+admin_user:  "admin"
+admin_pass:  "admin"   # 生产环境请修改！
+
+# ── Network ──────────────────────────────────────────────────────────────────
+main_router_ip: "192.168.1.1"
+side_router_ip: "192.168.1.2"
+
+# ── Agent ────────────────────────────────────────────────────────────────────
+agent_join_addr:         "192.168.1.1:1616"   # Server 数据面地址
+agent_interval_seconds:  30                    # 上报间隔（秒）
+agent_group:             "default"
+agent_network_mode:      "Bridged"             # Bridged | NAT
+agent_outbound_token:    "opentalon-secret-key-123"   # 与 agent_token 保持一致
+# agent_parent_id: 0   # PVE 子节点可设置父设备 ID
+
+# ── SSH ──────────────────────────────────────────────────────────────────────
+ssh_user:     "root"
+ssh_key_path: "~/.ssh/id_rsa"
