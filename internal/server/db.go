@@ -70,6 +70,8 @@ func UpsertDevice(payload RegisterPayload) (*models.Device, error) {
 			NetworkMode: payload.NetworkMode,
 			ParentID:    payload.ParentID,
 			AgentVer:    payload.AgentVer,
+			IsOnline:    true,
+			LastSeen:    time.Now(),
 		}
 		if err := DB.Create(&dev).Error; err != nil {
 			return nil, err

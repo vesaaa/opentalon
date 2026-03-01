@@ -13,6 +13,7 @@ import (
 
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
+	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
 	psnet "github.com/shirou/gopsutil/v4/net"
 )
@@ -35,11 +36,11 @@ type Snapshot struct {
 
 // Collector gathers system metrics periodically.
 type Collector struct {
-	mu           sync.Mutex
-	prevRx       uint64
-	prevTx       uint64
-	prevTime     time.Time
-	initialized  bool
+	mu          sync.Mutex
+	prevRx      uint64
+	prevTx      uint64
+	prevTime    time.Time
+	initialized bool
 }
 
 // NewCollector creates a ready-to-use Collector.
@@ -50,7 +51,7 @@ func NewCollector() *Collector {
 // Collect gathers the current system snapshot.
 func (c *Collector) Collect() (*Snapshot, error) {
 	snap := &Snapshot{
-		OS:          runtime.GOOS,
+		OS:          detailedOS(),
 		CollectedAt: time.Now(),
 	}
 
@@ -90,6 +91,18 @@ func (c *Collector) Collect() (*Snapshot, error) {
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// detailedOS returns a descriptive OS version string, or runtime.GOOS as fallback.
+func detailedOS() string {
+	info, err := host.Info()
+	if err == nil && info.Platform != "" {
+		if info.PlatformVersion != "" {
+			return fmt.Sprintf("%s %s", info.Platform, info.PlatformVersion) // e.g., "centos 7.9.2009"
+		}
+		return info.Platform
+	}
+	return runtime.GOOS
+}
 
 // localIP returns the first non-loopback IPv4 address.
 func localIP() string {

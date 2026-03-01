@@ -532,7 +532,7 @@
           <!-- Meta chips -->
           <div>
             <span class="meta-chip">{{ selected.ip }}</span>
-            <span class="meta-chip">{{ selected.os || 'Linux' }}</span>
+            <span class="meta-chip" :title="selected.os">{{ selected.os || 'Linux' }}</span>
             <span class="meta-chip">{{ selected.network_mode }}</span>
             <span class="meta-chip">{{ selected.group }}</span>
           </div>
@@ -627,25 +627,89 @@
           return Object.values(map);
         });
 
-        const osIcons = {
-          'windows': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/windows11.svg',
-          'linux': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/linux.svg',
-          'openwrt': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/openwrt.svg',
-          'merlin': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/asus.svg',
-          'fnos': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/truenas.svg',
-          'proxmox': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/proxmox.svg',
-          'mac': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/apple.svg',
-          'default': 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/serverless.svg'
-        };
+        const SI = 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/';
+        // 有序优先级规则列表：[关键字数组, icon文件名, 可选颜色（未用）]
+        const osIconRules = [
+          // Windows
+          [['windows', 'win'], SI + 'windows11.svg'],
+          // macOS
+          [['macos', 'mac', 'darwin', 'osx'], SI + 'apple.svg'],
+          // Android
+          [['android'], SI + 'android.svg'],
+          // Debian
+          [['debian'], SI + 'debian.svg'],
+          // Ubuntu
+          [['ubuntu'], SI + 'ubuntu.svg'],
+          // Rocky Linux
+          [['rocky'], SI + 'rockylinux.svg'],
+          // CentOS
+          [['centos'], SI + 'centos.svg'],
+          // Alpine
+          [['alpine'], SI + 'alpinelinux.svg'],
+          // Raspberry Pi / Raspbian
+          [['raspberry', 'raspbian'], SI + 'raspberrypi.svg'],
+          // Arch Linux
+          [['arch'], SI + 'archlinux.svg'],
+          // Fedora
+          [['fedora'], SI + 'fedora.svg'],
+          // openSUSE
+          [['opensuse', 'suse'], SI + 'opensuse.svg'],
+          // Proxmox / PVE
+          [['proxmox', 'pve'], SI + 'proxmox.svg'],
+          // OpenWrt
+          [['openwrt'], SI + 'openwrt.svg'],
+          // 梅林固件（华硕路由）
+          [['merlin', 'asus'], SI + 'asus.svg'],
+          // 飞牛 NAS / fnos
+          [['fnos', '飞牛', 'truenas'], SI + 'truenas.svg'],
+          // 群晖 Synology
+          [['synology', 'dsm'], SI + 'synology.svg'],
+          // UNRAID
+          [['unraid'], SI + 'unraid.svg'],
+          // FreeBSD
+          [['freebsd', 'bsd'], SI + 'freebsd.svg'],
+          // Linux 通用
+          [['linux'], SI + 'linux.svg'],
+          // 打印机
+          [['print'], SI + 'adobeacrobatreader.svg'],
+          // 路由器 / 交换机（通用网络）
+          [['router', 'switch', '路由', '交换'], SI + 'cisco.svg'],
+          // 摄像头 / IP Camera
+          [['camera', 'cam', '摄像'], SI + 'opencv.svg'],
+          // NAS 通用
+          [['nas', 'storage'], SI + 'qnap.svg'],
+          // 默认
+          [['default'], SI + 'serverfault.svg']
+        ];
 
         function getOsIconUrl(osName) {
-          if (!osName) return osIcons['default'];
-          const lower = osName.toLowerCase();
-          for (let key in osIcons) {
-            if (lower.includes(key)) return osIcons[key];
+          const lower = (osName || '').toLowerCase();
+          for (const [keys, url] of osIconRules) {
+            if (keys[0] === 'default') return url;
+            if (keys.some(k => lower.includes(k))) return url;
           }
-          return osIcons['default'];
+          return osIconRules[osIconRules.length - 1][1]; // default
         }
+
+        // SVG 图标颜色缓存（white）
+        const _iconCache = {};
+        async function fetchColoredIcon(url, color = '#e6edf3') {
+          const key = url + color;
+          if (_iconCache[key]) return _iconCache[key];
+          try {
+            const res = await fetch(url);
+            let svg = await res.text();
+            // 给 SVG 加上 fill 颜色使其变为白色/浅色
+            svg = svg.replace(/<svg /, `<svg fill="${color}" `);
+            const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+            _iconCache[key] = dataUrl;
+            return dataUrl;
+          } catch (e) {
+            return url; // fallback
+          }
+        }
+
+
 
         function flattenTree(nodes, result = []) {
           nodes?.forEach(n => { result.push(n); flattenTree(n.children, result); });
@@ -654,16 +718,20 @@
 
         function buildG6Data(treeData, parentId = null, nodes = [], edges = []) {
           (treeData || []).forEach(dev => {
+            const bgColor = dev.is_online ? '#1a4d2e' : '#21262d';
+            const strokeColor = dev.is_online ? '#3fb950' : '#444c56';
+            const iconUrl = getOsIconUrl(dev.os);
             nodes.push({
               id: String(dev.id),
               label: dev.hostname,
-              img: getOsIconUrl(dev.os),
-              style: {
-                fill: dev.is_online ? '#3fb950' : '#8b949e', // Image tint/bg logic doesn't strictly apply, we rely on icon visually.
-                stroke: dev.is_online ? '#3fb950' : '#30363d'
-              },
+              type: 'ot-device-node',
+              iconUrl,
+              os: dev.os,
+              isOnline: dev.is_online,
+              style: { fill: bgColor, stroke: strokeColor, lineWidth: 2 },
               stateStyles: {
-                selected: { stroke: '#58a6ff', lineWidth: 2, shadowColor: '#58a6ff', shadowBlur: 10 }
+                selected: { fill: bgColor, stroke: '#58a6ff', lineWidth: 2.5, shadowColor: '#58a6ff', shadowBlur: 12 },
+                hover: { fill: bgColor, stroke: strokeColor, opacity: 0.85 }
               }
             });
             if (parentId != null) {
@@ -672,6 +740,77 @@
             if (dev.children?.length) buildG6Data(dev.children, dev.id, nodes, edges);
           });
           return { nodes, edges };
+        }
+
+        // 注册自定义节点：圆形背景 + 中央白色 SVG 图标
+        function registerOtNode() {
+          if (G6.Global.customNodes && G6.Global.customNodes['ot-device-node']) return;
+          G6.registerNode('ot-device-node', {
+            draw(cfg, group) {
+              const size = 40;
+              const r = size / 2;
+              const fill = (cfg.style && cfg.style.fill) || '#1a4d2e';
+              const stroke = (cfg.style && cfg.style.stroke) || '#3fb950';
+              const shape = group.addShape('circle', {
+                attrs: { x: 0, y: 0, r, fill, stroke, lineWidth: 2 },
+                name: 'node-circle',
+                draggable: true
+              });
+              // 图标 image，先用占位，后面用 fetchColoredIcon 更新
+              const iconSize = 22;
+              const img = group.addShape('image', {
+                attrs: {
+                  x: -iconSize / 2, y: -iconSize / 2,
+                  width: iconSize, height: iconSize,
+                  img: cfg.iconUrl || ''
+                },
+                name: 'node-icon',
+                draggable: true
+              });
+              // 异步替换为白色图标
+              if (cfg.iconUrl) {
+                fetchColoredIcon(cfg.iconUrl, '#e6edf3').then(dataUrl => {
+                  try { img.attr('img', dataUrl); } catch (e) { }
+                });
+              }
+              // 标签（手动绘制在圆圈下方，避免 G6 默认标签被圆圈遮挡）
+              group.addShape('text', {
+                attrs: {
+                  text: cfg.label || '',
+                  x: 0, y: r + 14,
+                  textAlign: 'center',
+                  textBaseline: 'middle',
+                  fill: '#e6edf3',
+                  fontSize: 11,
+                  fontFamily: 'Inter, system-ui, sans-serif'
+                },
+                name: 'node-label',
+                draggable: true
+              });
+              return shape;
+            },
+            setState(name, value, item) {
+              const group = item.getContainer();
+              const circle = group.find(el => el.get('name') === 'node-circle');
+              if (!circle) return;
+              const model = item.getModel();
+              const baseFill = (model.style && model.style.fill) || '#1a4d2e';
+              const baseStroke = (model.style && model.style.stroke) || '#3fb950';
+              if (name === 'selected') {
+                circle.attr('stroke', value ? '#58a6ff' : baseStroke);
+                circle.attr('lineWidth', value ? 2.5 : 2);
+                circle.attr('shadowColor', value ? '#58a6ff' : 'transparent');
+                circle.attr('shadowBlur', value ? 12 : 0);
+              }
+              if (name === 'hover') {
+                circle.attr('opacity', value ? 0.8 : 1);
+              }
+            },
+            getAnchorPoints() {
+              return [[0.5, 0], [0.5, 1], [0, 0.5], [1, 0.5]];
+            },
+            update: undefined
+          }, 'single-node');
         }
 
         // ── Auth & API Wrapper ────────────────────────────────────────────────────
@@ -849,39 +988,50 @@
           const { nodes, edges } = buildG6Data(treeData);
 
           if (!g6Graph) {
+            registerOtNode();
+
+            const tooltip = new G6.Tooltip({
+              offsetX: 10,
+              offsetY: 10,
+              itemTypes: ['node'],
+              getContent(e) {
+                const outDiv = document.createElement('div');
+                outDiv.style.width = 'fit-content';
+                const model = e.item.getModel();
+                outDiv.innerHTML = `
+                  <div style="padding: 6px 10px; font-size: 11px; color: #e6edf3; background: #161b22; border: 1px solid #30363d; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                    ${model.os || '未知系统'}
+                  </div>`;
+                return outDiv;
+              }
+            });
+
             const container = document.getElementById('topo-canvas');
             g6Graph = new G6.Graph({
               container,
               width: container.clientWidth,
               height: container.clientHeight,
               fitView: true,
-              fitViewPadding: [40, 40, 40, 40],
+              fitViewPadding: [50, 50, 50, 50],
               modes: {
                 default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'click-select']
               },
+              plugins: [tooltip],
               layout: {
                 type: 'dagre',
                 rankdir: 'TB',
-                nodesep: 50,
-                ranksep: 70
+                nodesep: 40,
+                ranksep: 60
               },
               defaultNode: {
-                type: 'image',
-                size: [48, 48],
-                labelCfg: {
-                  position: 'bottom',
-                  offset: 8,
-                  style: { fill: '#e6edf3', fontSize: 12, background: { fill: '#0d1117', padding: [2, 4], radius: 4 } }
-                }
+                type: 'ot-device-node',
+                size: 40
               },
               defaultEdge: {
                 type: 'polyline',
-                style: { radius: 10, stroke: '#58a6ff', lineWidth: 1.5, endArrow: true }
+                style: { radius: 10, stroke: '#30363d', lineWidth: 1.5, endArrow: { path: G6.Arrow.triangle(6, 8, 5), fill: '#30363d' } }
               },
-              nodeStateStyles: {
-                hover: { opacity: 0.8 },
-                selected: { opacity: 1 }
-              }
+              nodeStateStyles: {}
             });
 
             g6Graph.on('node:click', (e) => {
@@ -893,8 +1043,30 @@
             g6Graph.on('node:mouseleave', ({ item }) => g6Graph.setItemState(item, 'hover', false));
           }
 
-          g6Graph.data({ nodes, edges });
-          g6Graph.render();
+          // 首次渲染用 data+render；后续更新用 changeData（支持动态增删节点）
+          const isFirstRender = !g6Graph._hasRendered;
+          if (isFirstRender) {
+            g6Graph.data({ nodes, edges });
+            g6Graph.render();
+            g6Graph._hasRendered = true;
+          } else {
+            g6Graph.changeData({ nodes, edges });
+          }
+
+          // 节点数量少时自动 fitView 会放得太大，而且在高分辨率大屏上也很容易被过度放大。
+          // 利用 G6 提供的 getZoom() 方法来将最大放大比例强制限制在 1.0 左右。
+          const currentZoom = g6Graph.getZoom();
+          const nodeCount = nodes.length;
+
+          if (nodeCount <= 3) {
+            // 如果只有极少数节点，强制使用较小且固定的绝对缩放比，比如 0.8
+            g6Graph.zoomTo(1.0 / currentZoom * 0.8);
+            g6Graph.fitCenter();
+          } else if (currentZoom > 1.2) {
+            // 如果节点较多但因为屏幕太大导致整体被拉伸放大太多，限制在 1.2
+            g6Graph.zoomTo(1.2 / currentZoom);
+            g6Graph.fitCenter();
+          }
 
           // Sync selection
           if (selected.value) {
