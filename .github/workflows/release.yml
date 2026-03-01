@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build and release (e.g., v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Determine Version
+        id: vars
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+          else
+            echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+          fi
+
+      - name: Build
+        run: |
+          make linux VERSION=${{ env.VERSION }}
+          make windows VERSION=${{ env.VERSION }}
+
+      - name: Publish Versioned Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "dist/opentalon-linux-amd64,dist/opentalon-windows-amd64.exe"
+          generateReleaseNotes: true
+          tag: "${{ env.VERSION }}"
+          name: "Release ${{ env.VERSION }}"
+          allowUpdates: true
+          replacesArtifacts: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Latest Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f latest
+          git push -f origin latest
+          
+      - name: Publish Latest Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "dist/opentalon-linux-amd64,dist/opentalon-windows-amd64.exe"
+          tag: "latest"
+          name: "Latest Release"
+          body: "This is the latest automatic build tracking the newest release: ${{ env.VERSION }}"
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
+          token: ${{ secrets.GITHUB_TOKEN }}
