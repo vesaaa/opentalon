@@ -48,26 +48,26 @@ jobs:
           artifacts: "dist/opentalon-linux-amd64,dist/opentalon-windows-amd64.exe"
           generateReleaseNotes: true
           tag: "${{ env.VERSION }}"
-          name: "Release ${{ env.VERSION }}"
+          name: "opentalon ${{ env.VERSION }}"
           allowUpdates: true
           replacesArtifacts: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Latest Tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f latest
-          git push -f origin latest
+      # - name: Update Latest Tag
+      #   run: |
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     git tag -f latest
+      #     git push -f origin latest
           
-      - name: Publish Latest Release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "dist/opentalon-linux-amd64,dist/opentalon-windows-amd64.exe"
-          tag: "latest"
-          name: "Latest Release"
-          body: "This is the latest automatic build tracking the newest release: ${{ env.VERSION }}"
-          allowUpdates: true
-          replacesArtifacts: true
-          makeLatest: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Publish Latest Release
+      #   uses: ncipollo/release-action@v1
+      #   with:
+      #     artifacts: "dist/opentalon-linux-amd64,dist/opentalon-windows-amd64.exe"
+      #     tag: "latest"
+      #     name: "Latest Release"
+      #     body: "This is the latest automatic build tracking the newest release: ${{ env.VERSION }}"
+      #     allowUpdates: true
+      #     replacesArtifacts: true
+      #     makeLatest: true
+      #     token: ${{ secrets.GITHUB_TOKEN }}
