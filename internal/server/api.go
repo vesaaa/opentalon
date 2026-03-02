@@ -47,6 +47,7 @@ func RegisterControlRoutes(r *gin.Engine) {
 
 		// Device management (initiated by operator, not agent)
 		auth.DELETE("/devices/:id", handleDeviceDelete)
+		auth.PATCH("/devices/:id", handleDeviceUpdate)
 	}
 }
 
@@ -123,6 +124,57 @@ func handleDeviceDelete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"deleted": id})
+}
+
+// handleDeviceUpdate updates mutable fields of a device (Web UI initiated).
+// Device hostname comes exclusively from the agent and is intentionally
+// immutable from the control-plane; operators can only adjust group and remark.
+func handleDeviceUpdate(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var body struct {
+		Group  *string `json:"group"`
+		Remark *string `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updates := make(map[string]any)
+	if body.Group != nil {
+		updates["group"] = *body.Group
+	}
+	if body.Remark != nil {
+		updates["remark"] = *body.Remark
+	}
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+		return
+	}
+
+	if err := DB.Model(&models.Device{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var dev models.Device
+	if err := DB.First(&dev, id).Error; err != nil {
+		c.JSON(http.StatusOK, gin.H{"updated": id})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":       dev.ID,
+		"hostname": dev.Hostname,
+		"remark":   dev.Remark,
+		"group":    dev.Group,
+	})
 }
 
 // handleDeviceRegister accepts registration from agents (data-plane only).

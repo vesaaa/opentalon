@@ -25,6 +25,8 @@ type Device struct {
 
 	// Identity
 	Hostname string `gorm:"index;not null" json:"hostname"`
+	// Remark is an optional human-friendly display name / note set from Web UI.
+	Remark   string `gorm:"index" json:"remark"`
 	IP       string `gorm:"uniqueIndex;not null" json:"ip"`
 	OS       string `json:"os"`
 
@@ -51,6 +53,7 @@ type Device struct {
 type DeviceTree struct {
 	ID          uint          `json:"id"`
 	Hostname    string        `json:"hostname"`
+	Remark      string        `json:"remark"`
 	IP          string        `json:"ip"`
 	OS          string        `json:"os"`
 	GatewayIP   string        `json:"gateway_ip"`

@@ -18,6 +18,12 @@ import (
 
 var DB *gorm.DB
 
+// heartbeatTimeout defines how long a device can stay silent before being
+// considered offline. This is intentionally not configurable via config.yaml
+// to keep user-facing config minimal (ports, DB, auth); it can be tuned in
+// code if needed.
+const heartbeatTimeout = 2 * time.Minute
+
 // InitDB opens the database and runs AutoMigrate.
 func InitDB(cfg *config.Config) error {
 	var dialector gorm.Dialector
@@ -63,6 +69,7 @@ func UpsertDevice(payload RegisterPayload) (*models.Device, error) {
 	if result.Error == gorm.ErrRecordNotFound {
 		dev = models.Device{
 			Hostname:    payload.Hostname,
+			Remark:      "", // managed from Web UI; agent never overwrites it
 			IP:          payload.IP,
 			OS:          payload.OS,
 			GatewayIP:   payload.GatewayIP,
@@ -125,12 +132,24 @@ func wireParent(dev *models.Device) {
 }
 
 // SaveMetrics persists a metrics snapshot and marks the device online.
+// To avoid unbounded growth in SQLite, we keep only a sliding window of the
+// most recent N snapshots per device, which is sufficient for real-time
+// dashboards and sparklines while remaining lightweight.
 func SaveMetrics(deviceID uint, m *models.Metrics) error {
 	m.DeviceID = deviceID
 	m.ReportedAt = time.Now()
 	if err := DB.Create(m).Error; err != nil {
 		return err
 	}
+	// Retain only the latest N rows per device (e.g., ~10 minutes @ 5s interval).
+	const maxSnapshotsPerDevice = 120
+	// Delete all but the newest N by reported_at.
+	DB.
+		Where("device_id = ?", deviceID).
+		Order("reported_at desc").
+		Offset(maxSnapshotsPerDevice).
+		Delete(&models.Metrics{})
+
 	DB.Model(&models.Device{}).Where("id = ?", deviceID).Updates(map[string]any{
 		"is_online": true,
 		"last_seen": time.Now(),
@@ -147,19 +166,36 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 
 	// Build lookup map
 	nodeMap := make(map[uint]*models.DeviceTree, len(devices))
+	now := time.Now()
+
 	for _, d := range devices {
 		d := d
+
+		// Derive online/offline from last_seen with a fixed timeout window.
+		online := d.IsOnline
+		if !d.LastSeen.IsZero() {
+			if now.Sub(d.LastSeen) > heartbeatTimeout {
+				online = false
+			}
+		}
+
 		nodeMap[d.ID] = &models.DeviceTree{
 			ID:          d.ID,
 			Hostname:    d.Hostname,
+			Remark:      d.Remark,
 			IP:          d.IP,
 			OS:          d.OS,
 			GatewayIP:   d.GatewayIP,
 			NetworkMode: d.NetworkMode,
 			Group:       d.Group,
-			IsOnline:    d.IsOnline,
+			IsOnline:    online,
 			LastSeen:    d.LastSeen,
 			ParentID:    d.ParentID,
+		}
+
+		// Persist any online → offline transition so other queries see it.
+		if d.IsOnline && !online {
+			DB.Model(&models.Device{}).Where("id = ?", d.ID).Update("is_online", false)
 		}
 	}
 

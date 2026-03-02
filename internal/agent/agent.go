@@ -85,16 +85,12 @@ func Run(cfg *config.Config) error {
 		fmt.Printf("[agent] registered as %s (%s) → server %s\n", snap.Hostname, snap.LocalIP, base)
 	}
 
-	// ── Periodic reporting loop ─────────────────────────────────────────────
-	ticker := time.NewTicker(time.Duration(cfg.AgentInterval) * time.Second)
-	defer ticker.Stop()
-
-	fmt.Printf("[agent] reporting every %ds. Press Ctrl+C to stop.\n", cfg.AgentInterval)
-	for range ticker.C {
+	// helper: send one metrics snapshot to server
+	reportOnce := func() {
 		snap, err := collector.Collect()
 		if err != nil {
 			fmt.Printf("[agent] collect error: %v\n", err)
-			continue
+			return
 		}
 
 		payload := MetricsPayload{
@@ -113,6 +109,18 @@ func Run(cfg *config.Config) error {
 		if err := postJSON(base+"/api/metrics", token, payload); err != nil {
 			fmt.Printf("[agent] report error: %v\n", err)
 		}
+	}
+
+	// Send first metrics immediately after registration so Web UI can show data
+	reportOnce()
+
+	// ── Periodic reporting loop ─────────────────────────────────────────────
+	ticker := time.NewTicker(time.Duration(cfg.AgentInterval) * time.Second)
+	defer ticker.Stop()
+
+	fmt.Printf("[agent] reporting every %ds. Press Ctrl+C to stop.\n", cfg.AgentInterval)
+	for range ticker.C {
+		reportOnce()
 	}
 	return nil
 }

@@ -142,6 +142,10 @@
       border-left: 2px solid var(--accent);
     }
 
+    .device-item.offline {
+      opacity: 0.55;
+    }
+
     .dot {
       width: 8px;
       height: 8px;
@@ -263,6 +267,65 @@
       display: flex;
       flex-direction: column;
       gap: 16px;
+    }
+    .drawer-section-title {
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .drawer-form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .drawer-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: var(--text);
+      font-size: .8rem;
+      outline: none;
+    }
+    .drawer-input:focus {
+      border-color: var(--accent);
+    }
+    .drawer-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 6px;
+      gap: 8px;
+    }
+    .btn-primary {
+      padding: 6px 12px;
+      background: var(--accent2);
+      color: #000;
+      border-radius: 6px;
+      border: none;
+      font-size: .8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .btn-danger {
+      padding: 6px 10px;
+      background: rgba(248, 81, 73, .15);
+      color: var(--danger);
+      border-radius: 6px;
+      border: 1px solid rgba(248, 81, 73, .5);
+      font-size: .75rem;
+      cursor: pointer;
+    }
+    .btn-danger:hover {
+      background: rgba(248, 81, 73, .25);
     }
 
     /* Gauge */
@@ -474,20 +537,24 @@
           <template v-for="group in groupedDevices" :key="group.name">
             <div class="group-label">{{ group.name || '默认分组' }}</div>
             <template v-for="dev in group.devices" :key="dev.id">
-              <div class="device-item" :class="{active: selected?.id === dev.id}" @click="selectDevice(dev)">
+              <div class="device-item"
+                   :class="[{active: selected?.id === dev.id}, dev.is_online ? '' : 'offline']"
+                   @click="selectDevice(dev)">
                 <div class="dot" :class="dev.is_online ? 'online':'offline'"></div>
                 <div>
-                  <div class="device-name">{{ dev.hostname }}</div>
+                  <div class="device-name">{{ dev.remark || dev.hostname }}</div>
                   <div class="device-ip">{{ dev.ip }}</div>
                 </div>
               </div>
               <!-- Children (e.g. PVE VMs) -->
               <template v-if="dev.children?.length">
-                <div v-for="child in dev.children" :key="child.id" class="device-item child-item"
-                  :class="{active: selected?.id === child.id}" @click="selectDevice(child)">
+                <div v-for="child in dev.children" :key="child.id"
+                     class="device-item child-item"
+                     :class="[{active: selected?.id === child.id}, child.is_online ? '' : 'offline']"
+                     @click="selectDevice(child)">
                   <div class="dot" :class="child.is_online ? 'online':'offline'"></div>
                   <div>
-                    <div class="device-name">↳ {{ child.hostname }}</div>
+                    <div class="device-name">↳ {{ child.remark || child.hostname }}</div>
                     <div class="device-ip">{{ child.ip }}</div>
                   </div>
                 </div>
@@ -508,6 +575,18 @@
       <!-- ── Topology Canvas ── -->
       <main>
         <div class="topo-area">
+          <div style="position:absolute;top:10px;right:10px;z-index:5;display:flex;gap:6px;">
+            <button class="btn-primary"
+                    :style="{padding:'4px 10px',fontSize:'.72rem',background: viewMode==='network' ? 'var(--accent2)' : 'transparent', color: viewMode==='network' ? '#000' : 'var(--muted)', borderColor: 'var(--border)'}"
+                    @click="viewMode='network'">
+              网络拓扑
+            </button>
+            <button class="btn-primary"
+                    :style="{padding:'4px 10px',fontSize:'.72rem',background: viewMode==='group' ? 'var(--accent2)' : 'transparent', color: viewMode==='group' ? '#000' : 'var(--muted)', borderColor: 'var(--border)'}"
+                    @click="viewMode='group'">
+              分组拓扑
+            </button>
+          </div>
           <div id="topo-canvas"></div>
           <div class="topo-hint" v-if="!allDevices.length && !showLogin">
             <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -525,10 +604,35 @@
       <div class="drawer" :class="{open: drawerOpen}" id="metrics-drawer">
         <div class="drawer-head">
           <div class="dot" :class="selected?.is_online ? 'online':'offline'"></div>
-          <h3>{{ selected?.hostname || '—' }}</h3>
+          <h3>{{ selected ? (selected.remark || selected.hostname) : '—' }}</h3>
           <button class="close-btn" id="close-drawer" @click="drawerOpen=false">✕</button>
         </div>
         <div class="drawer-body" v-if="selected">
+          <!-- Editable basics -->
+          <div>
+            <div class="drawer-section-title">设备信息</div>
+            <div class="drawer-form-row">
+              <label style="font-size:.75rem;color:var(--muted);">主机名（由 Agent 上报）</label>
+              <div class="drawer-input" style="border-style:dashed;cursor:default;">
+                {{ selected.hostname }}
+              </div>
+            </div>
+            <div class="drawer-form-row">
+              <label style="font-size:.75rem;color:var(--muted);">备注名称</label>
+              <input class="drawer-input" v-model="editForm.remark" placeholder="用于界面展示的备注名称">
+            </div>
+            <div class="drawer-form-row">
+              <label style="font-size:.75rem;color:var(--muted);">分组</label>
+              <input class="drawer-input" v-model="editForm.group" placeholder="如：网络设备、虚拟化、工作站">
+            </div>
+            <div class="drawer-actions">
+              <div>
+                <button class="btn-primary" :disabled="saving" @click="saveDevice">保存</button>
+              </div>
+              <button class="btn-danger" @click="deleteDevice">删除设备</button>
+            </div>
+          </div>
+
           <!-- Meta chips -->
           <div>
             <span class="meta-chip">{{ selected.ip }}</span>
@@ -610,6 +714,11 @@
         const metrics = ref(null);
         const drawerOpen = ref(false);
         const joinAddr = ref('');
+        // Hostname is reported by agent and immutable from Web UI; only allow remark + group edits.
+        const editForm = ref({ remark: '', group: '' });
+        // topo view mode: 'network' | 'group'
+        const viewMode = ref('network');
+        const saving = ref(false);
         let g6Graph = null;
         let gaugeCharts = {};
         let pollTimer = null;
@@ -625,6 +734,14 @@
             map[g].devices.push(root);
           });
           return Object.values(map);
+        });
+
+        // Tree used for G6 rendering under current view mode
+        const displayTree = computed(() => {
+          if (viewMode.value === 'group') {
+            return buildGroupTree(tree.value);
+          }
+          return tree.value || [];
         });
 
         const SI = 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/';
@@ -714,6 +831,35 @@
         function flattenTree(nodes, result = []) {
           nodes?.forEach(n => { result.push(n); flattenTree(n.children, result); });
           return result;
+        }
+
+        // Build a "group topology" tree: each group becomes a root node, children
+        // are devices belonging to that group. Device-to-device parent links are
+        // preserved under each group root to roughly mirror the network topology.
+        function buildGroupTree(originalTree) {
+          const flat = flattenTree(originalTree || []);
+          const byGroup = {};
+          flat.forEach(dev => {
+            const g = dev.group || 'default';
+            if (!byGroup[g]) byGroup[g] = [];
+            byGroup[g].push(dev);
+          });
+          const roots = [];
+          Object.entries(byGroup).forEach(([groupName, devices]) => {
+            roots.push({
+              id: `group:${groupName}`,
+              hostname: groupName || '默认分组',
+              remark: '',
+              ip: '',
+              os: 'Group',
+              gateway_ip: '',
+              network_mode: 'Group',
+              group: groupName,
+              is_online: true,
+              children: devices
+            });
+          });
+          return roots;
         }
 
         function buildG6Data(treeData, parentId = null, nodes = [], edges = []) {
@@ -870,13 +1016,20 @@
             const res = await apiFetch('/api/devices/tree');
             const data = await res.json();
             tree.value = data.data || [];
-            renderG6(tree.value);
-          } catch (e) {
-            if (e.message !== "No token" && e.message !== "Unauthorized") {
-              // Server not running (dev mode) — use mock data if fetch completely fails
-              tree.value = mockData();
-              renderG6(tree.value);
+            renderG6(displayTree.value);
+            // Refresh selected reference from latest tree so edits reflect
+            if (selected.value) {
+              const flat = flattenTree(tree.value);
+              const cur = flat.find(d => d.id === selected.value.id);
+              if (cur) {
+                selected.value = cur;
+                editForm.value.remark = cur.remark || '';
+                editForm.value.group = cur.group || '';
+              }
             }
+          } catch (e) {
+            // 在生产环境下不再注入 mock 数据，保持当前拓扑不变，避免出现不存在的示例设备
+            console.error('fetchTree error', e);
           }
         }
 
@@ -963,6 +1116,8 @@
           selected.value = dev;
           drawerOpen.value = true;
           metrics.value = null;
+          editForm.value.remark = dev.remark || '';
+          editForm.value.group = dev.group || '';
           fetchMetrics(dev.id);
           if (pollTimer) clearInterval(pollTimer);
           pollTimer = setInterval(() => fetchMetrics(dev.id), 5000);
@@ -1013,8 +1168,10 @@
               height: container.clientHeight,
               fitView: true,
               fitViewPadding: [50, 50, 50, 50],
+              minZoom: 0.5,
+              maxZoom: 2,
               modes: {
-                default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'click-select']
+                default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'brush-select']
               },
               plugins: [tooltip],
               layout: {
@@ -1034,6 +1191,7 @@
               nodeStateStyles: {}
             });
 
+            // 点击单个节点选中 + 同步到右侧抽屉
             g6Graph.on('node:click', (e) => {
               const deviceId = parseInt(e.item.getModel().id, 10);
               const dev = allDevices.value.find(d => d.id === deviceId);
@@ -1041,6 +1199,60 @@
             });
             g6Graph.on('node:mouseenter', ({ item }) => g6Graph.setItemState(item, 'hover', true));
             g6Graph.on('node:mouseleave', ({ item }) => g6Graph.setItemState(item, 'hover', false));
+
+            // 框选多节点
+            let brushSelectedIds = new Set();
+            let dragContext = null;
+
+            g6Graph.on('brushselectend', (e) => {
+              brushSelectedIds = new Set();
+              g6Graph.getNodes().forEach(n => g6Graph.setItemState(n, 'selected', false));
+              (e.selectedItems?.nodes || []).forEach(node => {
+                const id = node.getID();
+                brushSelectedIds.add(id);
+                g6Graph.setItemState(node, 'selected', true);
+              });
+            });
+
+            // 拖拽时如果节点在当前框选集合中，则整体一起移动
+            g6Graph.on('node:dragstart', (e) => {
+              const node = e.item;
+              const id = node.getID();
+              const ids = (brushSelectedIds.size > 0 && brushSelectedIds.has(id))
+                ? Array.from(brushSelectedIds)
+                : [id];
+              const originPositions = new Map();
+              ids.forEach(nid => {
+                const item = g6Graph.findById(nid);
+                if (item) {
+                  const m = item.getModel();
+                  originPositions.set(nid, { x: m.x, y: m.y });
+                }
+              });
+              dragContext = {
+                ids,
+                originPositions,
+                startX: e.x,
+                startY: e.y
+              };
+            });
+
+            g6Graph.on('node:drag', (e) => {
+              if (!dragContext) return;
+              const dx = e.x - dragContext.startX;
+              const dy = e.y - dragContext.startY;
+              dragContext.ids.forEach(nid => {
+                const item = g6Graph.findById(nid);
+                const origin = dragContext.originPositions.get(nid);
+                if (item && origin) {
+                  g6Graph.updateItem(item, { x: origin.x + dx, y: origin.y + dy });
+                }
+              });
+            });
+
+            g6Graph.on('node:dragend', () => {
+              dragContext = null;
+            });
           }
 
           // 首次渲染用 data+render；后续更新用 changeData（支持动态增删节点）
@@ -1049,23 +1261,16 @@
             g6Graph.data({ nodes, edges });
             g6Graph.render();
             g6Graph._hasRendered = true;
+            g6Graph.fitView();
           } else {
+            const zoom = g6Graph.getZoom();
+            const center = g6Graph.getPointByCanvas(g6Graph.getWidth() / 2, g6Graph.getHeight() / 2);
             g6Graph.changeData({ nodes, edges });
-          }
-
-          // 节点数量少时自动 fitView 会放得太大，而且在高分辨率大屏上也很容易被过度放大。
-          // 利用 G6 提供的 getZoom() 方法来将最大放大比例强制限制在 1.0 左右。
-          const currentZoom = g6Graph.getZoom();
-          const nodeCount = nodes.length;
-
-          if (nodeCount <= 3) {
-            // 如果只有极少数节点，强制使用较小且固定的绝对缩放比，比如 0.8
-            g6Graph.zoomTo(1.0 / currentZoom * 0.8);
-            g6Graph.fitCenter();
-          } else if (currentZoom > 1.2) {
-            // 如果节点较多但因为屏幕太大导致整体被拉伸放大太多，限制在 1.2
-            g6Graph.zoomTo(1.2 / currentZoom);
-            g6Graph.fitCenter();
+            // 尽量保持用户当前缩放和视角不变，避免更新数据后图标突然变大或变小
+            g6Graph.zoomTo(zoom, { x: g6Graph.getWidth() / 2, y: g6Graph.getHeight() / 2 });
+            if (center) {
+              g6Graph.focusPoint(center.x, center.y);
+            }
           }
 
           // Sync selection
@@ -1077,13 +1282,62 @@
 
         onMounted(() => {
           fetchTree();
-          setInterval(fetchTree, 30000);
+          // 拓扑和基础信息刷新频率：8 秒一轮，兼顾 200 台设备下的压力与实时性
+          setInterval(fetchTree, 8000);
         });
+
+        async function saveDevice() {
+          if (!selected.value) return;
+          if (!token.value) {
+            showLogin.value = true;
+            return;
+          }
+          try {
+            saving.value = true;
+            await apiFetch(`/api/devices/${selected.value.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                remark: editForm.value.remark || '',
+                group: editForm.value.group || undefined
+              })
+            });
+            await fetchTree();
+          } catch (e) {
+            console.error(e);
+          } finally {
+            saving.value = false;
+          }
+        }
+
+        async function deleteDevice() {
+          if (!selected.value) return;
+          if (!token.value) {
+            showLogin.value = true;
+            return;
+          }
+          if (!confirm(`确定删除设备 ${selected.value.hostname || selected.value.ip} 吗？`)) {
+            return;
+          }
+          try {
+            await apiFetch(`/api/devices/${selected.value.id}`, {
+              method: 'DELETE'
+            });
+            drawerOpen.value = false;
+            selected.value = null;
+            metrics.value = null;
+            await fetchTree();
+          } catch (e) {
+            console.error(e);
+          }
+        }
 
         return {
           tree, allDevices, groupedDevices, onlineCount, selected, metrics,
           drawerOpen, joinAddr, selectDevice, joinDevice, formatBytes,
-          token, showLogin, loginForm, doLogin
+          token, showLogin, loginForm, doLogin,
+          editForm, saving, saveDevice, deleteDevice,
+          viewMode, displayTree
         };
       }
     }).mount('#app');
