@@ -195,7 +195,12 @@
     }
 
     .device-item.offline {
-      opacity: 0.55;
+      opacity: 0.45;
+    }
+
+    .device-item.unknown {
+      border-left: 2px solid var(--warn);
+      background: rgba(154, 103, 0, 0.06);
     }
 
     .dot {
@@ -212,6 +217,11 @@
 
     .dot.offline {
       background: var(--muted);
+    }
+
+    .dot.unknown {
+      background: var(--warn);
+      box-shadow: 0 0 4px var(--warn);
     }
 
     .device-name {
@@ -614,9 +624,14 @@
             <div class="group-label">{{ group.name || '默认分组' }}</div>
             <template v-for="dev in group.devices" :key="dev.id">
               <div class="device-item"
-                   :class="[{active: selected?.id === dev.id}, dev.is_online ? '' : 'offline']"
+                   :class="[
+                     {active: selected?.id === dev.id},
+                     dev.status === 'online' ? '' : (dev.status === 'offline' ? 'offline' : 'unknown')
+                   ]"
                    @click="selectDevice(dev)">
-                <div class="dot" :class="dev.is_online ? 'online':'offline'"></div>
+                <div class="dot"
+                     :class="dev.status === 'online' ? 'online' : (dev.status === 'offline' ? 'offline' : 'unknown')">
+                </div>
                 <div>
                   <div class="device-name">{{ dev.remark || dev.hostname }}</div>
                   <div class="device-ip">{{ dev.ip }}</div>
@@ -906,16 +921,17 @@
 
         function buildG6Data(treeData, parentId = null, nodes = [], edges = []) {
           (treeData || []).forEach(dev => {
-            const osName = dev.os || 'Linux';
+            const osRaw = dev.os || '';
+            const osHint = (osRaw + ' ' + (dev.hostname || '')).trim() || 'Linux';
             const bgColor = dev.is_online ? '#f0f7ff' : '#f6f8fa';
             const strokeColor = dev.is_online ? '#0969da' : '#d0d7de';
-            const iconUrl = getOsIconUrl(osName);
+            const iconUrl = getOsIconUrl(osHint);
             nodes.push({
               id: String(dev.id),
               label: dev.hostname,
               type: 'ot-device-node',
               iconUrl,
-              os: osName,
+              os: osRaw || osHint,
               isOnline: dev.is_online,
               style: { fill: bgColor, stroke: strokeColor, lineWidth: 2 },
               stateStyles: {
@@ -1232,7 +1248,7 @@
                 const model = e.item.getModel();
                 outDiv.innerHTML = `
                   <div style="padding: 6px 10px; font-size: 11px; color: #e6edf3; background: #161b22; border: 1px solid #30363d; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-                    ${model.os || '未知系统'}
+                    ${model.os || model.label || '未知系统'}
                   </div>`;
                 return outDiv;
               }

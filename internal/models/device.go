@@ -69,7 +69,12 @@ type DeviceTree struct {
 	NetworkMode NetworkMode   `json:"network_mode"`
 	Group       string        `json:"group"`
 	IsOnline    bool          `json:"is_online"`
-	LastSeen    time.Time     `json:"last_seen"`
-	ParentID    *uint         `json:"parent_id,omitempty"`
-	Children    []*DeviceTree `json:"children,omitempty"`
+	// Status 是 UI 使用的高层状态：
+	//   - "online"  : 有 metrics 且最近一次上报在心跳窗口内
+	//   - "offline" : 有 metrics 但超过心跳窗口未上报
+	//   - "unknown" : 尚无任何 metrics 记录（只注册过设备）
+	Status   string        `json:"status"`
+	LastSeen time.Time     `json:"last_seen"`
+	ParentID *uint         `json:"parent_id,omitempty"`
+	Children []*DeviceTree `json:"children,omitempty"`
 }

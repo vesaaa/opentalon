@@ -199,6 +199,16 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 		return nil, err
 	}
 
+	// Preload which devices have at least one metrics row.
+	var metricDeviceIDs []uint
+	if err := DB.Model(&models.Metrics{}).Distinct("device_id").Pluck("device_id", &metricDeviceIDs).Error; err != nil {
+		return nil, err
+	}
+	metricsSet := make(map[uint]bool, len(metricDeviceIDs))
+	for _, id := range metricDeviceIDs {
+		metricsSet[id] = true
+	}
+
 	// Build lookup map
 	nodeMap := make(map[uint]*models.DeviceTree, len(devices))
 	now := time.Now()
@@ -206,11 +216,20 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 	for _, d := range devices {
 		d := d
 
-		// Derive online/offline from last_seen with a fixed timeout window.
-		online := d.IsOnline
-		if !d.LastSeen.IsZero() {
-			if now.Sub(d.LastSeen) > heartbeatTimeout {
+		hasMetrics := metricsSet[d.ID]
+
+		// 推导高层状态：unknown / online / offline
+		status := "unknown"
+		online := false
+		if hasMetrics {
+			online = d.IsOnline
+			if !d.LastSeen.IsZero() && now.Sub(d.LastSeen) > heartbeatTimeout {
 				online = false
+			}
+			if online {
+				status = "online"
+			} else {
+				status = "offline"
 			}
 		}
 
@@ -224,11 +243,12 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 			NetworkMode: d.NetworkMode,
 			Group:       d.Group,
 			IsOnline:    online,
+			Status:      status,
 			LastSeen:    d.LastSeen,
 			ParentID:    d.ParentID,
 		}
 
-		// Persist any online → offline transition so other queries see it.
+		// Persist any online → offline / unknown transition so other queries see it.
 		if d.IsOnline && !online {
 			DB.Model(&models.Device{}).Where("id = ?", d.ID).Update("is_online", false)
 		}
