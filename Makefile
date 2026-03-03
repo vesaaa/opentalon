@@ -37,7 +37,7 @@ armv7: distdir
 
 ## alpine: legacy alias for linux universal build (kept for backward compatibility)
 alpine: linux
-	cp $(DIST)/$(APP)-linux-amd64 $(DIST)/$(APP)-linux-amd64-alpine .
+	cp $(DIST)/$(APP)-linux-amd64 $(DIST)/$(APP)-linux-amd64-alpine
 
 ## darwin: cross-compile for macOS amd64
 darwin: distdir
