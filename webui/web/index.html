@@ -175,10 +175,6 @@
       color: var(--muted);
     }
 
-    .child-item {
-      padding-left: 30px;
-    }
-
     /* ── Main Panel ── */
     main {
       flex: 1;
@@ -536,29 +532,17 @@
         <div class="device-list">
           <template v-for="group in groupedDevices" :key="group.name">
             <div class="group-label">{{ group.name || '默认分组' }}</div>
-            <template v-for="dev in group.devices" :key="dev.id">
+            <template v-for="item in group.devices" :key="item.dev.id">
               <div class="device-item"
-                   :class="[{active: selected?.id === dev.id}, dev.is_online ? '' : 'offline']"
-                   @click="selectDevice(dev)">
-                <div class="dot" :class="dev.is_online ? 'online':'offline'"></div>
+                   :style="{ paddingLeft: (14 + (item.depth || 0) * 14) + 'px' }"
+                   :class="[{active: selected?.id === item.dev.id}, item.dev.is_online ? '' : 'offline']"
+                   @click="selectDevice(item.dev)">
+                <div class="dot" :class="item.dev.is_online ? 'online':'offline'"></div>
                 <div>
-                  <div class="device-name">{{ dev.remark || dev.hostname }}</div>
-                  <div class="device-ip">{{ dev.ip }}</div>
+                  <div class="device-name">{{ indentPrefix(item.depth) }}{{ item.dev.remark || item.dev.hostname }}</div>
+                  <div class="device-ip">{{ item.dev.ip }}</div>
                 </div>
               </div>
-              <!-- Children (e.g. PVE VMs) -->
-              <template v-if="dev.children?.length">
-                <div v-for="child in dev.children" :key="child.id"
-                     class="device-item child-item"
-                     :class="[{active: selected?.id === child.id}, child.is_online ? '' : 'offline']"
-                     @click="selectDevice(child)">
-                  <div class="dot" :class="child.is_online ? 'online':'offline'"></div>
-                  <div>
-                    <div class="device-name">↳ {{ child.remark || child.hostname }}</div>
-                    <div class="device-ip">{{ child.ip }}</div>
-                  </div>
-                </div>
-              </template>
             </template>
           </template>
           <div v-if="!allDevices.length" style="padding:20px 14px;color:var(--muted);font-size:.8rem;">
@@ -575,18 +559,6 @@
       <!-- ── Topology Canvas ── -->
       <main>
         <div class="topo-area">
-          <div style="position:absolute;top:10px;right:10px;z-index:5;display:flex;gap:6px;">
-            <button class="btn-primary"
-                    :style="{padding:'4px 10px',fontSize:'.72rem',background: viewMode==='network' ? 'var(--accent2)' : 'transparent', color: viewMode==='network' ? '#000' : 'var(--muted)', borderColor: 'var(--border)'}"
-                    @click="viewMode='network'">
-              网络拓扑
-            </button>
-            <button class="btn-primary"
-                    :style="{padding:'4px 10px',fontSize:'.72rem',background: viewMode==='group' ? 'var(--accent2)' : 'transparent', color: viewMode==='group' ? '#000' : 'var(--muted)', borderColor: 'var(--border)'}"
-                    @click="viewMode='group'">
-              分组拓扑
-            </button>
-          </div>
           <div id="topo-canvas"></div>
           <div class="topo-hint" v-if="!allDevices.length && !showLogin">
             <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -716,8 +688,6 @@
         const joinAddr = ref('');
         // Hostname is reported by agent and immutable from Web UI; only allow remark + group edits.
         const editForm = ref({ remark: '', group: '' });
-        // topo view mode: 'network' | 'group'
-        const viewMode = ref('network');
         const saving = ref(false);
         let g6Graph = null;
         let gaugeCharts = {};
@@ -728,20 +698,14 @@
         const onlineCount = computed(() => allDevices.value.filter(d => d.is_online).length);
         const groupedDevices = computed(() => {
           const map = {};
-          tree.value.forEach(root => {
-            const g = root.group || 'default';
+          const items = flattenTreeWithDepth(tree.value || []);
+          items.forEach(({ dev, depth }) => {
+            const g = dev.group || 'default';
             if (!map[g]) map[g] = { name: g, devices: [] };
-            map[g].devices.push(root);
+            map[g].devices.push({ dev, depth });
           });
-          return Object.values(map);
-        });
-
-        // Tree used for G6 rendering under current view mode
-        const displayTree = computed(() => {
-          if (viewMode.value === 'group') {
-            return buildGroupTree(tree.value);
-          }
-          return tree.value || [];
+          return Object.values(map)
+            .sort((a, b) => (a.name || '').localeCompare((b.name || ''), 'zh-CN'));
         });
 
         const SI = 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/';
@@ -833,33 +797,12 @@
           return result;
         }
 
-        // Build a "group topology" tree: each group becomes a root node, children
-        // are devices belonging to that group. Device-to-device parent links are
-        // preserved under each group root to roughly mirror the network topology.
-        function buildGroupTree(originalTree) {
-          const flat = flattenTree(originalTree || []);
-          const byGroup = {};
-          flat.forEach(dev => {
-            const g = dev.group || 'default';
-            if (!byGroup[g]) byGroup[g] = [];
-            byGroup[g].push(dev);
+        function flattenTreeWithDepth(nodes, depth = 0, result = []) {
+          (nodes || []).forEach(n => {
+            result.push({ dev: n, depth });
+            if (n.children?.length) flattenTreeWithDepth(n.children, depth + 1, result);
           });
-          const roots = [];
-          Object.entries(byGroup).forEach(([groupName, devices]) => {
-            roots.push({
-              id: `group:${groupName}`,
-              hostname: groupName || '默认分组',
-              remark: '',
-              ip: '',
-              os: 'Group',
-              gateway_ip: '',
-              network_mode: 'Group',
-              group: groupName,
-              is_online: true,
-              children: devices
-            });
-          });
-          return roots;
+          return result;
         }
 
         function buildG6Data(treeData, parentId = null, nodes = [], edges = []) {
@@ -1016,7 +959,7 @@
             const res = await apiFetch('/api/devices/tree');
             const data = await res.json();
             tree.value = data.data || [];
-            renderG6(displayTree.value);
+            renderG6(tree.value || []);
             // Refresh selected reference from latest tree so edits reflect
             if (selected.value) {
               const flat = flattenTree(tree.value);
@@ -1092,6 +1035,11 @@
           if (b < 1024) return b + ' B/s';
           if (b < 1048576) return (b / 1024).toFixed(1) + ' KB/s';
           return (b / 1048576).toFixed(2) + ' MB/s';
+        }
+
+        function indentPrefix(depth) {
+          const d = Math.max(0, Math.min(depth || 0, 5));
+          return d ? ('↳ '.repeat(d)) : '';
         }
 
         function mockData() {
@@ -1337,7 +1285,7 @@
           drawerOpen, joinAddr, selectDevice, joinDevice, formatBytes,
           token, showLogin, loginForm, doLogin,
           editForm, saving, saveDevice, deleteDevice,
-          viewMode, displayTree
+          indentPrefix
         };
       }
     }).mount('#app');

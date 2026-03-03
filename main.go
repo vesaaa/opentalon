@@ -29,7 +29,7 @@ const asciiLogo = `
 const version = "v0.1.0"
 
 func printBanner(mode string) {
-	fmt.Println(asciiLogo)
+	fmt.Print(asciiLogo)
 	fmt.Printf("  ► OpenTalon %s  |  Author: vesaa  |  Mode: %s\n\n", version, mode)
 }
 
