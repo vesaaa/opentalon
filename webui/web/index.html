@@ -532,15 +532,14 @@
         <div class="device-list">
           <template v-for="group in groupedDevices" :key="group.name">
             <div class="group-label">{{ group.name || '默认分组' }}</div>
-            <template v-for="item in group.devices" :key="item.dev.id">
+            <template v-for="dev in group.devices" :key="dev.id">
               <div class="device-item"
-                   :style="{ paddingLeft: (14 + (item.depth || 0) * 14) + 'px' }"
-                   :class="[{active: selected?.id === item.dev.id}, item.dev.is_online ? '' : 'offline']"
-                   @click="selectDevice(item.dev)">
-                <div class="dot" :class="item.dev.is_online ? 'online':'offline'"></div>
+                   :class="[{active: selected?.id === dev.id}, dev.is_online ? '' : 'offline']"
+                   @click="selectDevice(dev)">
+                <div class="dot" :class="dev.is_online ? 'online':'offline'"></div>
                 <div>
-                  <div class="device-name">{{ indentPrefix(item.depth) }}{{ item.dev.remark || item.dev.hostname }}</div>
-                  <div class="device-ip">{{ item.dev.ip }}</div>
+                  <div class="device-name">{{ dev.remark || dev.hostname }}</div>
+                  <div class="device-ip">{{ dev.ip }}</div>
                 </div>
               </div>
             </template>
@@ -696,13 +695,13 @@
         // ── Flatten tree ──────────────────────────────────────────────────────────
         const allDevices = computed(() => flattenTree(tree.value));
         const onlineCount = computed(() => allDevices.value.filter(d => d.is_online).length);
+        // 左侧列表：同一分组内按分组并行展示，不体现父子缩进
         const groupedDevices = computed(() => {
           const map = {};
-          const items = flattenTreeWithDepth(tree.value || []);
-          items.forEach(({ dev, depth }) => {
+          allDevices.value.forEach(dev => {
             const g = dev.group || 'default';
             if (!map[g]) map[g] = { name: g, devices: [] };
-            map[g].devices.push({ dev, depth });
+            map[g].devices.push(dev);
           });
           return Object.values(map)
             .sort((a, b) => (a.name || '').localeCompare((b.name || ''), 'zh-CN'));
@@ -794,14 +793,6 @@
 
         function flattenTree(nodes, result = []) {
           nodes?.forEach(n => { result.push(n); flattenTree(n.children, result); });
-          return result;
-        }
-
-        function flattenTreeWithDepth(nodes, depth = 0, result = []) {
-          (nodes || []).forEach(n => {
-            result.push({ dev: n, depth });
-            if (n.children?.length) flattenTreeWithDepth(n.children, depth + 1, result);
-          });
           return result;
         }
 
@@ -1035,11 +1026,6 @@
           if (b < 1024) return b + ' B/s';
           if (b < 1048576) return (b / 1024).toFixed(1) + ' KB/s';
           return (b / 1048576).toFixed(2) + ' MB/s';
-        }
-
-        function indentPrefix(depth) {
-          const d = Math.max(0, Math.min(depth || 0, 5));
-          return d ? ('↳ '.repeat(d)) : '';
         }
 
         function mockData() {

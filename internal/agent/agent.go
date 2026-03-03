@@ -79,7 +79,7 @@ func Run(cfg *config.Config) error {
 		AgentVer:    agentVersion,
 	}
 
-	if err := postJSON(base+"/api/devices/register", token, reg); err != nil {
+	if err := postJSON(base+"/api/devices/register", token, reg, cfg.AgentDebugHTTP); err != nil {
 		fmt.Printf("[agent] registration warning: %v\n", err)
 	} else {
 		fmt.Printf("[agent] registered as %s (%s) → server %s\n", snap.Hostname, snap.LocalIP, base)
@@ -106,7 +106,7 @@ func Run(cfg *config.Config) error {
 			UDPConnections: snap.UDPConnections,
 		}
 
-		if err := postJSON(base+"/api/metrics", token, payload); err != nil {
+		if err := postJSON(base+"/api/metrics", token, payload, cfg.AgentDebugHTTP); err != nil {
 			fmt.Printf("[agent] report error: %v\n", err)
 		}
 	}
@@ -127,10 +127,15 @@ func Run(cfg *config.Config) error {
 
 // postJSON sends v as JSON via HTTP POST with the Bearer token in the Authorization header.
 // This ensures every data-plane request is authenticated.
-func postJSON(url, bearerToken string, v any) error {
+func postJSON(url, bearerToken string, v any, debug bool) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return err
+	}
+
+	if debug {
+		fmt.Printf("[agent] POST %s\n", url)
+		fmt.Printf("[agent]   payload: %s\n", string(body))
 	}
 
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
@@ -146,6 +151,10 @@ func postJSON(url, bearerToken string, v any) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if debug {
+		fmt.Printf("[agent]   status: %d\n", resp.StatusCode)
+	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return fmt.Errorf("server rejected token (401) — check --token or agent_token in config")

@@ -46,6 +46,9 @@ type Config struct {
 	// AgentToken for outbound requests (overridden by --token CLI flag)
 	AgentOutboundToken string `mapstructure:"agent_outbound_token"`
 
+	// AgentDebugHTTP enables verbose agent HTTP logging (requests & responses).
+	AgentDebugHTTP bool `mapstructure:"agent_debug_http"`
+
 	// ── SSH defaults ──────────────────────────────────────────────────────────
 	SSHUser    string `mapstructure:"ssh_user"`
 	SSHKeyPath string `mapstructure:"ssh_key_path"`
@@ -80,6 +83,7 @@ func Load() (*Config, error) {
 	v.SetDefault("agent_group", "default")
 	v.SetDefault("agent_network_mode", "Bridged")
 	v.SetDefault("agent_outbound_token", "opentalon-secret-key-123")
+	v.SetDefault("agent_debug_http", false)
 
 	v.SetDefault("ssh_user", "root")
 	v.SetDefault("ssh_key_path", "~/.ssh/id_rsa")

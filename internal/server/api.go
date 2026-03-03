@@ -230,6 +230,11 @@ func handleMetricsIngest(c *gin.Context) {
 		dev = *d
 	}
 
+	// On every metrics report, gently keep topology in sync:
+	// only when ParentID 为空 或者 网关 IP 发生变化时，才尝试根据 GatewayIP 自动挂载父节点，
+	// 避免高频上报导致拓扑关系被反复刷新。
+	MaybeWireParentByGateway(&dev, payload.GatewayIP)
+
 	m := &models.Metrics{
 		CPUUsage:       payload.CPUUsage,
 		MemUsage:       payload.MemUsage,

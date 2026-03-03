@@ -147,6 +147,9 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 			if parent, _ := cmd.Flags().GetUint("parent"); parent != 0 {
 				cfg.AgentParentID = parent
 			}
+			if debugHTTP, _ := cmd.Flags().GetBool("debug-http"); debugHTTP {
+				cfg.AgentDebugHTTP = true
+			}
 
 			fmt.Printf("  ✓ Joining server: %s\n", cfg.AgentJoinAddr)
 			fmt.Printf("  ✓ Token:          %s\n", cfg.AgentOutboundToken)
@@ -158,6 +161,7 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 	agentCmd.Flags().String("token", "", "Pre-shared token for server authentication (overrides config)")
 	agentCmd.Flags().String("group", "", "Device group name")
 	agentCmd.Flags().Uint("parent", 0, "Parent device ID (for PVE VM topology declaration)")
+	agentCmd.Flags().Bool("debug-http", false, "Enable verbose HTTP logging for agent (requests & responses)")
 
 	// ── version subcommand ────────────────────────────────────────────────────
 	versionCmd := &cobra.Command{

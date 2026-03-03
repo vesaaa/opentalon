@@ -53,17 +53,21 @@ Invoke-WebRequest -Uri "https://github.com/vesaaa/opentalon/releases/latest/down
 
 ```bash
 ./opentalon server
-# Dashboard: http://localhost:9090
+# 控制平面（Web UI + API）: http://localhost:6677
+# 数据平面（Agent 上报） : http://localhost:1616
 ```
 
 ### 纳管设备（Agent）
 
 ```bash
-# 在需要被管理的设备上运行：
-./opentalon agent --join 192.168.1.1
+# 在需要被管理的设备上运行（join 不带端口时默认使用 data_port，例如 1616）：
+./opentalon agent --join 192.168.1.1 --token opentalon-secret-key-123
 
 # 指定分组和 PVE 父节点（可选）：
-./opentalon agent --join 192.168.1.1 --group "虚拟化" --parent 3
+./opentalon agent --join 192.168.1.1 --token opentalon-secret-key-123 --group "虚拟化" --parent 3
+
+# 排查问题时可打开 HTTP 日志：
+./opentalon agent --join 192.168.1.1 --token opentalon-secret-key-123 --debug-http
 ```
 
 > Agent 启动后自动向 Server 注册，Server 根据该设备上报的 **默认网关 IP** 自动将其连线到对应父节点，无需手动配置拓扑。
@@ -96,15 +100,28 @@ opentalon/
 默认配置（可通过 `config.yaml` 或 `TALON_*` 环境变量覆盖）：
 
 ```yaml
-server_host:     "0.0.0.0"
-server_port:     9090
-db_path:         "opentalon.db"
-main_router_ip:  "192.168.1.1"
-side_router_ip:  "192.168.1.2"
+server_host:           "0.0.0.0"
+control_port:          6677      # Web UI + 控制平面 API
+data_port:             1616      # Agent 上报数据平面
+db_path:               "opentalon.db"
+db_driver:             "sqlite"
+
+jwt_secret:            "OtLn$Xq7@wP2!mZ9#rK6^dV4&eA1*fY"
+agent_token:           "opentalon-secret-key-123"
+admin_user:            "admin"
+admin_pass:            "admin"
+
+main_router_ip:        "192.168.1.1"
+side_router_ip:        "192.168.1.2"
+
+agent_join_addr:       "127.0.0.1:1616"
 agent_interval_seconds: 30
-agent_group:     "default"
-agent_network_mode: "Bridged"
+agent_group:           "default"
+agent_network_mode:    "Bridged"
+agent_outbound_token:  "opentalon-secret-key-123"
 ```
+
+> **提示**：生产环境务必修改 `jwt_secret`、`agent_token`、`admin_user` / `admin_pass` 等安全相关配置。
 
 ## 🔨 编译
 

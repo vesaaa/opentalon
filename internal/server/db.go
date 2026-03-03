@@ -157,6 +157,33 @@ func SaveMetrics(deviceID uint, m *models.Metrics) error {
 	return nil
 }
 
+// MaybeWireParentByGateway is a lightweight helper used on the metrics ingest path.
+// It only recalculates ParentID when it is currently nil OR when the reported
+// GatewayIP has changed, to avoid on-every-metrics churn.
+func MaybeWireParentByGateway(dev *models.Device, gateway string) {
+	if dev == nil {
+		return
+	}
+	if gateway == "" {
+		return
+	}
+
+	// If parent is already set and gateway unchanged, nothing to do.
+	if dev.ParentID != nil && dev.GatewayIP == gateway {
+		return
+	}
+
+	// Update gateway IP and try to (re)wire parent.
+	if err := DB.Model(dev).Update("gateway_ip", gateway).Error; err != nil {
+		return
+	}
+	dev.GatewayIP = gateway
+
+	if dev.ParentID == nil {
+		wireParent(dev)
+	}
+}
+
 // GetDeviceTree returns all devices as a nested tree.
 func GetDeviceTree() ([]*models.DeviceTree, error) {
 	var devices []models.Device
