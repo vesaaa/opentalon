@@ -41,6 +41,11 @@ jobs:
         run: |
           make linux VERSION=${{ env.VERSION }}
           make windows VERSION=${{ env.VERSION }}
+          make arm64 VERSION=${{ env.VERSION }}
+          make armv7 VERSION=${{ env.VERSION }}
+          make alpine VERSION=${{ env.VERSION }}
+          make darwin VERSION=${{ env.VERSION }}
+          make darwin-arm64 VERSION=${{ env.VERSION }}
 
 
       - name: Update Latest Tag
@@ -53,7 +58,7 @@ jobs:
       - name: Publish Latest Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "dist/opentalon-linux-amd64,dist/opentalon-windows-amd64.exe"
+          artifacts: "dist/opentalon-linux-amd64,dist/opentalon-linux-amd64-alpine,dist/opentalon-linux-arm64,dist/opentalon-linux-armv7,dist/opentalon-darwin-amd64,dist/opentalon-darwin-arm64,dist/opentalon-windows-amd64.exe"
           tag: "latest"
           name: "opentalon latest"
           body: "This is the latest automatic build tracking the newest release: ${{ env.VERSION }}"
@@ -65,7 +70,7 @@ jobs:
       - name: Publish Versioned Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "dist/opentalon-linux-amd64,dist/opentalon-windows-amd64.exe"
+          artifacts: "dist/opentalon-linux-amd64,dist/opentalon-linux-amd64-alpine,dist/opentalon-linux-arm64,dist/opentalon-linux-armv7,dist/opentalon-darwin-amd64,dist/opentalon-darwin-arm64,dist/opentalon-windows-amd64.exe"
           generateReleaseNotes: true
           tag: "${{ env.VERSION }}"
           name: "opentalon ${{ env.VERSION }}"

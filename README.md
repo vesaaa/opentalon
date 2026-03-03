@@ -21,8 +21,28 @@
 ### 安装
 
 ```bash
-# Linux amd64
+# Linux amd64 (Debian/Ubuntu/CentOS 等)
 curl -L https://github.com/vesaa/opentalon/releases/latest/download/opentalon-linux-amd64 -o opentalon
+chmod +x opentalon
+
+# Alpine Linux amd64 (musl)
+curl -L https://github.com/vesaa/opentalon/releases/latest/download/opentalon-linux-amd64-alpine -o opentalon
+chmod +x opentalon
+
+# Linux arm64
+curl -L https://github.com/vesaa/opentalon/releases/latest/download/opentalon-linux-arm64 -o opentalon
+chmod +x opentalon
+
+# Linux armv7 (32-bit)
+curl -L https://github.com/vesaa/opentalon/releases/latest/download/opentalon-linux-armv7 -o opentalon
+chmod +x opentalon
+
+# macOS amd64 (Intel)
+curl -L https://github.com/vesaa/opentalon/releases/latest/download/opentalon-darwin-amd64 -o opentalon
+chmod +x opentalon
+
+# macOS arm64 (Apple Silicon)
+curl -L https://github.com/vesaa/opentalon/releases/latest/download/opentalon-darwin-arm64 -o opentalon
 chmod +x opentalon
 
 # Windows amd64 (PowerShell)
