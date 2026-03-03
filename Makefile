@@ -19,9 +19,9 @@ build:
 tidy:
 	go mod tidy
 
-## linux: cross-compile for Linux amd64
+## linux: cross-compile for Linux amd64 (universal static build)
 linux: distdir
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST)/$(APP)-linux-amd64 .
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -tags netgo,osusergo -o $(DIST)/$(APP)-linux-amd64 .
 
 ## windows: cross-compile for Windows amd64
 windows: distdir
@@ -35,9 +35,9 @@ arm64: distdir
 armv7: distdir
 	GOOS=linux GOARCH=arm GOARM=7 go build $(LDFLAGS) -o $(DIST)/$(APP)-linux-armv7 .
 
-## alpine: linux amd64 build optimized for musl-based distros (Alpine)
-alpine: distdir
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -tags netgo,osusergo -o $(DIST)/$(APP)-linux-amd64-alpine .
+## alpine: legacy alias for linux universal build (kept for backward compatibility)
+alpine: linux
+	cp $(DIST)/$(APP)-linux-amd64 $(DIST)/$(APP)-linux-amd64-alpine .
 
 ## darwin: cross-compile for macOS amd64
 darwin: distdir

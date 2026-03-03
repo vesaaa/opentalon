@@ -21,11 +21,11 @@
 ### 安装
 
 ```bash
-# Linux amd64 (Debian/Ubuntu/CentOS 等)
+# Linux amd64 通用版（推荐，适用于 CentOS 7 / Debian / Ubuntu / Rocky / Alpine 等）
 curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-linux-amd64 -o opentalon
 chmod +x opentalon
 
-# Alpine Linux amd64 (musl)
+# Alpine Linux amd64 (兼容旧脚本，功能同上)
 curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-linux-amd64-alpine -o opentalon
 chmod +x opentalon
 
@@ -135,8 +135,8 @@ go build -o opentalon .
 ### 交叉编译
 
 ```bash
-# Linux amd64
-GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o dist/opentalon-linux-amd64 .
+# Linux amd64 通用静态版
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -tags netgo,osusergo -o dist/opentalon-linux-amd64 .
 
 # Windows amd64
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/opentalon-windows-amd64.exe .

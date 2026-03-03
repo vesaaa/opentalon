@@ -7,11 +7,11 @@
   <title>OpenTalon — 设备拓扑管理</title>
   <meta name="description" content="OpenTalon 开源跨平台设备管理与拓扑监控平台">
 
-  <!-- AntV G6 拓扑图 -->
-  <script src="https://unpkg.com/@antv/g6@4.8.24/dist/g6.min.js"></script>
-  <!-- Vue 3 CDN -->
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <!-- Chart.js 仪表盘 -->
+  <!-- AntV G6 拓扑图（统一使用 jsDelivr） -->
+  <script src="https://cdn.jsdelivr.net/npm/@antv/g6@4.8.24/dist/g6.min.js"></script>
+  <!-- Vue 3 CDN（jsDelivr） -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Chart.js 仪表盘（已是 jsDelivr） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
   <style>
@@ -239,7 +239,7 @@
     .topo-area {
       flex: 1;
       position: relative;
-      background: linear-gradient(135deg, var(--bg) 0%, var(--surface) 55%, #dde7ff 100%);
+      background: var(--bg);
     }
 
     #topo-canvas {
@@ -906,15 +906,16 @@
 
         function buildG6Data(treeData, parentId = null, nodes = [], edges = []) {
           (treeData || []).forEach(dev => {
+            const osName = dev.os || 'Linux';
             const bgColor = dev.is_online ? '#f0f7ff' : '#f6f8fa';
             const strokeColor = dev.is_online ? '#0969da' : '#d0d7de';
-            const iconUrl = getOsIconUrl(dev.os);
+            const iconUrl = getOsIconUrl(osName);
             nodes.push({
               id: String(dev.id),
               label: dev.hostname,
               type: 'ot-device-node',
               iconUrl,
-              os: dev.os,
+              os: osName,
               isOnline: dev.is_online,
               style: { fill: bgColor, stroke: strokeColor, lineWidth: 2 },
               stateStyles: {
@@ -940,30 +941,32 @@
               const fill = (cfg.style && cfg.style.fill) || '#f0f7ff';
               const stroke = (cfg.style && cfg.style.stroke) || '#0969da';
 
-              // Breathing outer ring
-              const pulse = group.addShape('circle', {
-                attrs: {
-                  x: 0,
-                  y: 0,
-                  r: r + 6,
-                  stroke: 'rgba(9,105,218,0.45)',
-                  lineWidth: 1,
-                  fill: 'rgba(9,105,218,0.08)',
-                },
-                name: 'pulse-circle',
-                draggable: true,
-              });
-              pulse.animate(
-                ratio => ({
-                  r: r + 6 + ratio * 6,
-                  opacity: 0.6 - ratio * 0.6,
-                }),
-                {
-                  duration: 1800,
-                  repeat: true,
-                  easing: 'easeCubic',
-                }
-              );
+              // Breathing outer ring（仅在线设备显示）
+              if (cfg.isOnline) {
+                const pulse = group.addShape('circle', {
+                  attrs: {
+                    x: 0,
+                    y: 0,
+                    r: r + 6,
+                    stroke: 'rgba(9,105,218,0.45)',
+                    lineWidth: 1,
+                    fill: 'rgba(9,105,218,0.08)',
+                  },
+                  name: 'pulse-circle',
+                  draggable: true,
+                });
+                pulse.animate(
+                  ratio => ({
+                    r: r + 6 + ratio * 6,
+                    opacity: 0.6 - ratio * 0.6,
+                  }),
+                  {
+                    duration: 1800,
+                    repeat: true,
+                    easing: 'easeCubic',
+                  }
+                );
+              }
               const shape = group.addShape('circle', {
                 attrs: { x: 0, y: 0, r, fill, stroke, lineWidth: 2 },
                 name: 'node-circle',
@@ -987,13 +990,15 @@
                 });
               }
               // 标签（手动绘制在圆圈下方，避免 G6 默认标签被圆圈遮挡）
+              const bodyStyle = window.getComputedStyle(document.body);
+              const labelColor = bodyStyle.getPropertyValue('--text') || '#24292f';
               group.addShape('text', {
                 attrs: {
                   text: cfg.label || '',
                   x: 0, y: r + 14,
                   textAlign: 'center',
                   textBaseline: 'middle',
-                  fill: '#e6edf3',
+                  fill: labelColor.trim() || '#24292f',
                   fontSize: 11,
                   fontFamily: 'Inter, system-ui, sans-serif'
                 },
@@ -1425,7 +1430,6 @@
           drawerOpen, joinAddr, selectDevice, joinDevice, formatBytes,
           token, showLogin, loginForm, doLogin,
           editForm, saving, saveDevice, deleteDevice,
-          indentPrefix,
           theme, setTheme, parseIPs
         };
       }
