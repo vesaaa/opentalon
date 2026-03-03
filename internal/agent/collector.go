@@ -32,6 +32,12 @@ type Snapshot struct {
 	RxBytes        int64 // bytes/s since last snapshot
 	TxBytes        int64 // bytes/s since last snapshot
 	CollectedAt    time.Time
+
+	// LANIPs holds all candidate "intranet" IPv4 addresses on this node
+	// (e.g. 192.168.x.x / 10.x.x.x / 172.16-31.x.x). These用于父子拓扑推导。
+	LANIPs []string
+	// WANIPs holds public / non-RFC1918 IPv4 addresses (典型为出口公网 IP)，仅用于展示。
+	WANIPs []string
 }
 
 // Collector gathers system metrics periodically.
@@ -60,8 +66,8 @@ func (c *Collector) Collect() (*Snapshot, error) {
 		snap.Hostname = h
 	}
 
-	// Local IP + Gateway
-	snap.LocalIP = localIP()
+	// Local IP + Gateway + LAN/WAN IP 集合
+	snap.LocalIP, snap.LANIPs, snap.WANIPs = classifyIPs()
 	snap.GatewayIP = defaultGateway()
 
 	// CPU
@@ -104,14 +110,20 @@ func detailedOS() string {
 	return runtime.GOOS
 }
 
-// localIP returns the first non-loopback IPv4 address.
-func localIP() string {
+// classifyIPs 遍历所有网卡，把 IPv4 地址划分为：
+//   - LANIPs: RFC1918 私网地址（排除常见虚拟/隧道网卡）
+//   - WANIPs: 其他非回环 IPv4（常用于公网/出口）
+// 返回值中的 primaryLAN 则作为 "主 IP" 在 UI 中展示。
+func classifyIPs() (primaryLAN string, lanIPs []string, wanIPs []string) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return ""
+		return "", nil, nil
 	}
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if isVirtualInterface(iface.Name) {
 			continue
 		}
 		addrs, _ := iface.Addrs()
@@ -123,12 +135,60 @@ func localIP() string {
 			case *net.IPAddr:
 				ip = v.IP
 			}
-			if ip != nil && ip.To4() != nil && !ip.IsLoopback() {
-				return ip.String()
+			if ip == nil || ip.To4() == nil || ip.IsLoopback() {
+				continue
+			}
+			ipStr := ip.String()
+			if isPrivateIPv4(ip) {
+				lanIPs = append(lanIPs, ipStr)
+				// 选第一个私网地址作为 primaryLAN（后续可根据接口名再做细分）
+				if primaryLAN == "" {
+					primaryLAN = ipStr
+				}
+			} else {
+				wanIPs = append(wanIPs, ipStr)
 			}
 		}
 	}
-	return ""
+	// 如果没有私网地址，则降级为使用第一个 WAN IP 作为 primaryLAN（如果存在）
+	if primaryLAN == "" && len(wanIPs) > 0 {
+		primaryLAN = wanIPs[0]
+	}
+	return primaryLAN, lanIPs, wanIPs
+}
+
+// isVirtualInterface 依据接口名称粗略判断是否为虚拟/隧道设备，
+// 这些接口的 IP 一般不参与拓扑父子关系推导。
+func isVirtualInterface(name string) bool {
+	n := strings.ToLower(name)
+	prefixes := []string{
+		"docker", "br-", "cni", "veth", "flannel", "tun", "tap",
+		"wg", "tailscale", "virbr", "zt", "lo",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(n, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// isPrivateIPv4 判断 IPv4 是否属于 RFC1918 私网地址段。
+func isPrivateIPv4(ip net.IP) bool {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	switch {
+	case ip4[0] == 10:
+		return true
+	case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
+		return true
+	case ip4[0] == 192 && ip4[1] == 168:
+		return true
+	default:
+		return false
+	}
 }
 
 // defaultGateway reads the default gateway from the OS.

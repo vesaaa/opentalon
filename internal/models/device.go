@@ -36,6 +36,15 @@ type Device struct {
 	Parent   *Device     `gorm:"foreignKey:ParentID" json:"-"`
 	Children []*Device   `gorm:"foreignKey:ParentID" json:"children,omitempty"`
 
+	// LANIPs stores all private IPv4 addresses (RFC1918) observed on this node,
+	// serialized as a comma-separated string. Used for multi-segment topology
+	// inference when a device has multiple intranet interfaces (e.g. 192.168.x
+	// and 10.x).
+	LANIPs string `json:"lan_ips"`
+	// WANIPs stores public / non-RFC1918 IPv4 addresses, also comma-separated,
+	// used primarily for display (e.g. router's WAN IP).
+	WANIPs string `json:"wan_ips"`
+
 	// GatewayIP reported by agent; server uses this to auto-wire parent links.
 	GatewayIP string `gorm:"index" json:"gateway_ip"`
 

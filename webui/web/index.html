@@ -24,6 +24,7 @@
     }
 
     :root {
+      /* 默认暗色主题变量，具体取值可被 body[data-theme='light'] / body[data-theme='dark'] 覆盖 */
       --bg: #0d1117;
       --surface: #161b22;
       --border: #30363d;
@@ -35,6 +36,32 @@
       --muted: #8b949e;
       --sidebar-w: 260px;
       --header-h: 52px;
+    }
+
+    /* 亮色主题（默认） */
+    body[data-theme='light'] {
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --border: #d0d7de;
+      --accent: #0969da;
+      --accent2: #1a7f37;
+      --warn: #9a6700;
+      --danger: #cf222e;
+      --text: #24292f;
+      --muted: #57606a;
+    }
+
+    /* 暗色主题 */
+    body[data-theme='dark'] {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --accent2: #3fb950;
+      --warn: #e3b341;
+      --danger: #f85149;
+      --text: #e6edf3;
+      --muted: #8b949e;
     }
 
     body,
@@ -79,6 +106,31 @@
       background: rgba(63, 185, 80, .12);
       color: var(--accent2);
       border: 1px solid var(--accent2);
+    }
+
+    .theme-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 12px;
+      font-size: .72rem;
+      color: var(--muted);
+    }
+
+    .theme-toggle-btn {
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: .7rem;
+    }
+
+    .theme-toggle-btn.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
     }
 
     /* ── Layout ── */
@@ -187,9 +239,7 @@
     .topo-area {
       flex: 1;
       position: relative;
-      background: var(--bg);
-      background-image: radial-gradient(var(--border) 1px, transparent 0);
-      background-size: 24px 24px;
+      background: linear-gradient(135deg, var(--bg) 0%, var(--surface) 55%, #dde7ff 100%);
     }
 
     #topo-canvas {
@@ -409,6 +459,27 @@
       margin: 2px;
     }
 
+    .network-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(9, 105, 218, .08);
+      border: 1px solid rgba(9, 105, 218, .4);
+      font-size: .72rem;
+      color: var(--accent);
+      margin: 2px 4px 2px 0;
+    }
+
+    .network-badge-label {
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: .65rem;
+      color: var(--muted);
+    }
+
     /* Join bar */
     .join-bar {
       padding: 10px 14px;
@@ -523,6 +594,15 @@
       <div class="logo">Open<span>Talon</span></div>
       <span style="color:var(--muted);font-size:.8rem;">设备拓扑管理平台</span>
       <div class="status-pill">{{ onlineCount }} 台在线</div>
+      <div class="theme-toggle">
+        <span>主题</span>
+        <button class="theme-toggle-btn"
+                :class="{active: theme==='light'}"
+                @click="setTheme('light')">浅色</button>
+        <button class="theme-toggle-btn"
+                :class="{active: theme==='dark'}"
+                @click="setTheme('dark')">深色</button>
+      </div>
     </header>
 
     <div class="workspace" style="position:relative;">
@@ -653,6 +733,32 @@
             <div class="stat-label">默认网关</div>
             <div style="font-size:.85rem;margin-top:4px;">{{ selected.gateway_ip || metrics?.gateway_ip || '未知' }}</div>
           </div>
+          <!-- Network info -->
+          <div class="stat-card">
+            <div class="drawer-section-title">网络信息</div>
+            <div style="margin-bottom:6px;">
+              <span class="network-badge">
+                <span class="network-badge-label">PRIMARY</span>
+                <span>{{ selected.ip }}</span>
+              </span>
+            </div>
+            <div v-if="parseIPs(selected.lan_ips).length">
+              <div class="network-badge-label" style="margin-bottom:2px;">LAN</div>
+              <div>
+                <span v-for="ip in parseIPs(selected.lan_ips)" :key="ip" class="network-badge">
+                  {{ ip }}
+                </span>
+              </div>
+            </div>
+            <div v-if="parseIPs(selected.wan_ips).length" style="margin-top:6px;">
+              <div class="network-badge-label" style="margin-bottom:2px;">WAN</div>
+              <div>
+                <span v-for="ip in parseIPs(selected.wan_ips)" :key="ip" class="network-badge">
+                  {{ ip }}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div><!-- .workspace -->
@@ -687,6 +793,8 @@
         const joinAddr = ref('');
         // Hostname is reported by agent and immutable from Web UI; only allow remark + group edits.
         const editForm = ref({ remark: '', group: '' });
+        // 主题：light | dark，默认浅色
+        const theme = ref('light');
         const saving = ref(false);
         let g6Graph = null;
         let gaugeCharts = {};
@@ -798,8 +906,8 @@
 
         function buildG6Data(treeData, parentId = null, nodes = [], edges = []) {
           (treeData || []).forEach(dev => {
-            const bgColor = dev.is_online ? '#1a4d2e' : '#21262d';
-            const strokeColor = dev.is_online ? '#3fb950' : '#444c56';
+            const bgColor = dev.is_online ? '#f0f7ff' : '#f6f8fa';
+            const strokeColor = dev.is_online ? '#0969da' : '#d0d7de';
             const iconUrl = getOsIconUrl(dev.os);
             nodes.push({
               id: String(dev.id),
@@ -822,15 +930,40 @@
           return { nodes, edges };
         }
 
-        // 注册自定义节点：圆形背景 + 中央白色 SVG 图标
+        // 注册自定义节点：圆形背景 + 中央白色 SVG 图标 + 呼吸光环
         function registerOtNode() {
           if (G6.Global.customNodes && G6.Global.customNodes['ot-device-node']) return;
           G6.registerNode('ot-device-node', {
             draw(cfg, group) {
               const size = 40;
               const r = size / 2;
-              const fill = (cfg.style && cfg.style.fill) || '#1a4d2e';
-              const stroke = (cfg.style && cfg.style.stroke) || '#3fb950';
+              const fill = (cfg.style && cfg.style.fill) || '#f0f7ff';
+              const stroke = (cfg.style && cfg.style.stroke) || '#0969da';
+
+              // Breathing outer ring
+              const pulse = group.addShape('circle', {
+                attrs: {
+                  x: 0,
+                  y: 0,
+                  r: r + 6,
+                  stroke: 'rgba(9,105,218,0.45)',
+                  lineWidth: 1,
+                  fill: 'rgba(9,105,218,0.08)',
+                },
+                name: 'pulse-circle',
+                draggable: true,
+              });
+              pulse.animate(
+                ratio => ({
+                  r: r + 6 + ratio * 6,
+                  opacity: 0.6 - ratio * 0.6,
+                }),
+                {
+                  duration: 1800,
+                  repeat: true,
+                  easing: 'easeCubic',
+                }
+              );
               const shape = group.addShape('circle', {
                 attrs: { x: 0, y: 0, r, fill, stroke, lineWidth: 2 },
                 name: 'node-circle',
@@ -1028,6 +1161,11 @@
           return (b / 1048576).toFixed(2) + ' MB/s';
         }
 
+        function parseIPs(str) {
+          if (!str) return [];
+          return String(str).split(',').map(s => s.trim()).filter(Boolean);
+        }
+
         function mockData() {
           return [
             {
@@ -1215,10 +1353,26 @@
         }
 
         onMounted(() => {
+          // 初始化主题（默认 light，可从 localStorage 恢复）
+          const saved = localStorage.getItem('opentalon_theme');
+          if (saved === 'dark' || saved === 'light') {
+            theme.value = saved;
+          }
+          document.body.dataset.theme = theme.value;
+
           fetchTree();
           // 拓扑和基础信息刷新频率：8 秒一轮，兼顾 200 台设备下的压力与实时性
           setInterval(fetchTree, 8000);
         });
+
+        watch(theme, (val) => {
+          document.body.dataset.theme = val;
+          localStorage.setItem('opentalon_theme', val);
+        });
+
+        function setTheme(mode) {
+          theme.value = mode === 'dark' ? 'dark' : 'light';
+        }
 
         async function saveDevice() {
           if (!selected.value) return;
@@ -1271,7 +1425,8 @@
           drawerOpen, joinAddr, selectDevice, joinDevice, formatBytes,
           token, showLogin, loginForm, doLogin,
           editForm, saving, saveDevice, deleteDevice,
-          indentPrefix
+          indentPrefix,
+          theme, setTheme, parseIPs
         };
       }
     }).mount('#app');

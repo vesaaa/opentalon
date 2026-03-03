@@ -24,6 +24,9 @@ type RegisterPayload struct {
 	NetworkMode models.NetworkMode `json:"network_mode"`
 	ParentID    *uint              `json:"parent_id,omitempty"`
 	AgentVer    string             `json:"agent_ver"`
+	// LANIPs / WANIPs mirror Snapshot.LANIPs / Snapshot.WANIPs，方便 Server 做更精细的拓扑推导与展示。
+	LANIPs []string `json:"lan_ips,omitempty"`
+	WANIPs []string `json:"wan_ips,omitempty"`
 }
 
 // MetricsPayload wraps a Snapshot for HTTP transport.
@@ -77,6 +80,8 @@ func Run(cfg *config.Config) error {
 		NetworkMode: models.NetworkMode(cfg.AgentNetworkMode),
 		ParentID:    parentID,
 		AgentVer:    agentVersion,
+		LANIPs:      snap.LANIPs,
+		WANIPs:      snap.WANIPs,
 	}
 
 	if err := postJSON(base+"/api/devices/register", token, reg, cfg.AgentDebugHTTP); err != nil {

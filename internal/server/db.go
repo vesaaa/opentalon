@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -79,6 +80,8 @@ func UpsertDevice(payload RegisterPayload) (*models.Device, error) {
 			AgentVer:    payload.AgentVer,
 			IsOnline:    true,
 			LastSeen:    time.Now(),
+			LANIPs:      strings.Join(payload.LANIPs, ","),
+			WANIPs:      strings.Join(payload.WANIPs, ","),
 		}
 		if err := DB.Create(&dev).Error; err != nil {
 			return nil, err
@@ -96,6 +99,8 @@ func UpsertDevice(payload RegisterPayload) (*models.Device, error) {
 			"agent_ver":    payload.AgentVer,
 			"is_online":    true,
 			"last_seen":    time.Now(),
+			"lan_ips":      strings.Join(payload.LANIPs, ","),
+			"wan_ips":      strings.Join(payload.WANIPs, ","),
 		})
 		// Only update ParentID if explicitly provided by agent
 		if payload.ParentID != nil {
@@ -120,7 +125,10 @@ func UpsertDevice(payload RegisterPayload) (*models.Device, error) {
 // This enables automatic topology inference from the default gateway alone.
 func wireParent(dev *models.Device) {
 	var parent models.Device
-	if err := DB.Where("ip = ?", dev.GatewayIP).First(&parent).Error; err != nil {
+	// 优先通过设备主 IP 匹配，其次通过 LANIPs（多网段设备的任一内网地址）。
+	if err := DB.
+		Where("ip = ? OR lan_ips LIKE ?", dev.GatewayIP, "%"+dev.GatewayIP+"%").
+		First(&parent).Error; err != nil {
 		return // parent not (yet) registered; will be resolved on next upsert
 	}
 	if parent.ID == dev.ID {
@@ -259,4 +267,6 @@ type RegisterPayload struct {
 	NetworkMode models.NetworkMode `json:"network_mode"`
 	ParentID    *uint              `json:"parent_id,omitempty"`
 	AgentVer    string             `json:"agent_ver"`
+	LANIPs      []string           `json:"lan_ips,omitempty"`
+	WANIPs      []string           `json:"wan_ips,omitempty"`
 }
