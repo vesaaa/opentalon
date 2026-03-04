@@ -35,7 +35,7 @@
       --text: #e6edf3;
       --muted: #8b949e;
       --sidebar-w: 260px;
-      --header-h: 52px;
+      --header-h: 60px;
     }
 
     /* 亮色主题 */
@@ -88,14 +88,27 @@
     }
 
     .logo {
-      font-size: 1.15rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1.05rem;
       font-weight: 700;
       letter-spacing: .04em;
-      color: var(--accent);
+      color: #111827; /* 深色文字，适配白底条 */
+      padding: 6px 16px;
+      border-radius: 8px;
+      background: #f9fafb; /* 近似白色的 Logo 条，类似 Nginx/Prometheus 顶栏风格 */
+      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.06);
     }
 
     .logo span {
-      color: var(--accent2);
+      color: #111827;
+    }
+
+    .logo img {
+      height: 48px;
+      width: auto;
+      display: block;
     }
 
     .status-pill {
@@ -601,7 +614,10 @@
   <div id="app">
     <!-- 顶部 Header -->
     <header>
-      <div class="logo">Open<span>Talon</span> · 利爪</div>
+      <div class="logo">
+        <img src="/logo-opentalon-nav.png" alt="OpenTalon 利爪 Logo">
+        <span>OpenTalon · 利爪</span>
+      </div>
       <span style="color:var(--muted);font-size:.8rem;">利爪 · 局域网拓扑与性能监控</span>
       <div class="status-pill">{{ onlineCount }} 台在线设备</div>
       <div class="theme-toggle">

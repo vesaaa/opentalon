@@ -41,6 +41,29 @@ func RegisterStaticFiles(r *gin.Engine) {
 		staticFS = http.FS(webRoot)
 	}
 
+	// Serve static assets (logo 等) 直接从嵌入的文件系统读取
+	r.GET("/logo-opentalon.png", func(c *gin.Context) {
+		f, err := staticFS.Open("logo-opentalon.png")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		stat, _ := f.Stat()
+		c.DataFromReader(http.StatusOK, stat.Size(), "image/png", f, nil)
+	})
+
+	r.GET("/logo-opentalon-nav.png", func(c *gin.Context) {
+		f, err := staticFS.Open("logo-opentalon-nav.png")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		stat, _ := f.Stat()
+		c.DataFromReader(http.StatusOK, stat.Size(), "image/png", f, nil)
+	})
+
 	// SPA fallback: ALL unmatched routes return index.html
 	r.NoRoute(func(c *gin.Context) {
 		f, err := staticFS.Open("index.html")
