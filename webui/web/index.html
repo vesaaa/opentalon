@@ -615,7 +615,25 @@
     <!-- 顶部 Header -->
     <header>
       <div class="logo">
-        <img src="/logo-opentalon-nav.png" alt="OpenTalon 利爪 Logo">
+        <!-- 内联 SVG Logo，背景天然透明 -->
+        <svg width="96" height="48" viewBox="0 0 96 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="ot-claw-left" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#22d3ee"/>
+              <stop offset="100%" stop-color="#0ea5e9"/>
+            </linearGradient>
+            <linearGradient id="ot-claw-right" x1="1" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#e879f9"/>
+              <stop offset="100%" stop-color="#fb7185"/>
+            </linearGradient>
+          </defs>
+          <!-- 左侧青色利爪 -->
+          <path d="M10 44 C 18 28, 24 16, 30 4 C 20 10, 13 20, 8 32 C 6 36, 6 40, 10 44 Z"
+                fill="url(#ot-claw-left)"/>
+          <!-- 右侧粉色利爪 -->
+          <path d="M32 44 C 40 30, 52 18, 68 4 C 56 10, 46 20, 38 32 C 34 38, 32 42, 32 44 Z"
+                fill="url(#ot-claw-right)"/>
+        </svg>
         <span>OpenTalon · 利爪</span>
       </div>
       <span style="color:var(--muted);font-size:.8rem;">利爪 · 局域网拓扑与性能监控</span>
@@ -1118,6 +1136,47 @@
           }, 'single-node');
         }
 
+        // 自定义边：在父子连线上添加“飞行标记”效果的小光点
+        function registerOtEdge() {
+          if (G6.Global.customEdges && G6.Global.customEdges['ot-flow-edge']) return;
+          G6.registerEdge('ot-flow-edge', {
+            afterDraw(cfg, group) {
+              const keyShape = group.get('children')[0];
+              if (!keyShape || !keyShape.getPoint) return;
+
+              const marker = group.addShape('circle', {
+                attrs: {
+                  x: 0,
+                  y: 0,
+                  r: 3,
+                  fill: '#58a6ff',
+                  shadowColor: '#58a6ff',
+                  shadowBlur: 8,
+                },
+                name: 'flow-marker',
+                draggable: false,
+              });
+
+              // 沿着边路径循环移动的小点（从子节点流向父节点）
+              marker.animate(
+                (ratio) => {
+                  const point = keyShape.getPoint(1 - ratio);
+                  if (!point) return {};
+                  return {
+                    x: point.x,
+                    y: point.y,
+                  };
+                },
+                {
+                  duration: 3000,
+                  repeat: true,
+                  easing: 'easeLinear',
+                }
+              );
+            },
+          }, 'polyline');
+        }
+
         // 控制平面认证与 API 封装（使用 JWT）
         const token = ref(localStorage.getItem('opentalon_jwt') || '');
         const showLogin = ref(!token.value);
@@ -1308,6 +1367,7 @@
 
           if (!g6Graph) {
             registerOtNode();
+            registerOtEdge();
 
             const tooltip = new G6.Tooltip({
               offsetX: 10,
@@ -1349,8 +1409,8 @@
                 size: 40
               },
               defaultEdge: {
-                type: 'polyline',
-                style: { radius: 10, stroke: '#30363d', lineWidth: 1.5, endArrow: { path: G6.Arrow.triangle(6, 8, 5), fill: '#30363d' } }
+                type: 'ot-flow-edge',
+                style: { radius: 10, stroke: '#30363d', lineWidth: 1.5 }
               },
               nodeStateStyles: {}
             });
@@ -1427,8 +1487,24 @@
             g6Graph._hasRendered = true;
             g6Graph.fitView();
           } else {
+            // 保留用户拖拽后的节点位置：先记录旧位置，再在 changeData 后复写回去
+            const oldPositions = {};
+            g6Graph.getNodes().forEach(n => {
+              const m = n.getModel();
+              if (!m || m.id == null) return;
+              oldPositions[String(m.id)] = { x: m.x, y: m.y };
+            });
+
             g6Graph.changeData({ nodes, edges });
-            g6Graph.fitView();
+
+            g6Graph.getNodes().forEach(n => {
+              const m = n.getModel();
+              const pos = oldPositions[String(m.id)];
+              if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+                g6Graph.updateItem(n, { x: pos.x, y: pos.y });
+              }
+            });
+            // 不再在每次轮询时自动 fitView，避免打乱用户手动布局
           }
 
           // Sync selection
