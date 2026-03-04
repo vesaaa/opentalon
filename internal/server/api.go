@@ -1,4 +1,4 @@
-// Package server provides the OpenTalon Gin-based REST API.
+﻿// Package server provides the OpenTalon Gin-based REST API.
 // Routes are split into two groups:
 //   - Control-plane (port 6677): JWT-protected; serves the Web UI and admin API.
 //   - Data-plane   (port 1616): Bearer-token-protected; receives agent reports.
@@ -31,14 +31,14 @@ func SetAdminCredentials(user, pass string) {
 func RegisterControlRoutes(r *gin.Engine) {
 	api := r.Group("/api")
 
-	// ── Public endpoints ──────────────────────────────────────────────────────
+	// 鈹€鈹€ Public endpoints 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 	api.POST("/login", handleLogin)
 
 	api.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().UTC()})
 	})
 
-	// ── JWT-protected endpoints ───────────────────────────────────────────────
+	// 鈹€鈹€ JWT-protected endpoints 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 	auth := api.Group("/", JWTMiddleware())
 	{
 		// Topology
@@ -61,13 +61,13 @@ func RegisterDataRoutes(r *gin.Engine) {
 		api.POST("/metrics", handleMetricsIngest)
 	}
 
-	// Data-plane health (no auth — used by load-balancers / k8s probes)
+	// Data-plane health (no auth, used by load-balancers / k8s probes)
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 }
 
-// ── Handlers ──────────────────────────────────────────────────────────────────
+// 鈹€鈹€ Handlers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 // handleLogin accepts username + password and returns a signed JWT.
 //
@@ -119,7 +119,7 @@ func handleDeviceDelete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	if err := DB.Delete(&models.Device{}, id).Error; err != nil {
+	if err := DB.Unscoped().Delete(&models.Device{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -230,9 +230,9 @@ func handleMetricsIngest(c *gin.Context) {
 		dev = *d
 	}
 
-	// On every metrics report, gently keep topology in sync:
-	// only when ParentID 为空 或者 网关 IP 发生变化时，才尝试根据 GatewayIP 自动挂载父节点，
-	// 避免高频上报导致拓扑关系被反复刷新。
+	// On every metrics report, gently keep topology in sync (avoid thrashing parent wiring).
+	
+	// 閬垮厤楂橀涓婃姤瀵艰嚧鎷撴墤鍏崇郴琚弽澶嶅埛鏂般€?
 	MaybeWireParentByGateway(&dev, payload.GatewayIP)
 
 	m := &models.Metrics{
@@ -263,8 +263,10 @@ func handleDeviceMetrics(c *gin.Context) {
 	}
 	m, err := GetLatestMetrics(uint(id))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no metrics found"})
+		// 鏃犳寚鏍囨椂杩斿洖 200 + null锛岄伩鍏嶅墠绔?404锛涜璁惧鍙兘灏氭湭鏈?Agent 涓婃姤鎴?id 涓庝笂鎶ヨ澶囦笉涓€鑷?
+		c.JSON(http.StatusOK, gin.H{"data": nil})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": m})
 }
+

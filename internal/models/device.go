@@ -53,9 +53,14 @@ type Device struct {
 	Group       string      `gorm:"index;default:'default'" json:"group"`
 
 	// Lifecycle
-	LastSeen  time.Time `json:"last_seen"`
-	AgentVer  string    `json:"agent_ver"`
-	IsOnline  bool      `gorm:"default:false" json:"is_online"`
+	LastSeen time.Time `json:"last_seen"`
+	AgentVer string    `json:"agent_ver"`
+	IsOnline bool      `gorm:"default:false" json:"is_online"`
+
+	// TopologyDirty 标记该设备是否需要批量重算父子关系。
+	// true  表示需要根据 GatewayIP 重新挂父节点
+	// false 表示当前 GatewayIP 已经处理过（不论是否找到父节点）
+	TopologyDirty bool `gorm:"index;default:false" json:"-"`
 }
 
 // DeviceTree is the DTO used by the API to return the full topology.

@@ -4,14 +4,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenTalon — 设备拓扑管理</title>
-  <meta name="description" content="OpenTalon 开源跨平台设备管理与拓扑监控平台">
+  <title>OpenTalon · 利爪局域网监控平台</title>
+  <meta name="description" content="OpenTalon（利爪）：自托管的局域网监控与拓扑可视化平台。">
 
-  <!-- AntV G6 拓扑图（统一使用 jsDelivr） -->
+  <!-- AntV G6 拓扑图组件（通过 jsDelivr CDN 加载） -->
   <script src="https://cdn.jsdelivr.net/npm/@antv/g6@4.8.24/dist/g6.min.js"></script>
-  <!-- Vue 3 CDN（jsDelivr） -->
+  <!-- Vue 3 框架（通过 jsDelivr CDN 加载） -->
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
-  <!-- Chart.js 仪表盘（已是 jsDelivr） -->
+  <!-- Chart.js 仪表盘组件（通过 jsDelivr CDN 加载） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
   <style>
@@ -24,7 +24,7 @@
     }
 
     :root {
-      /* 默认暗色主题变量，具体取值可被 body[data-theme='light'] / body[data-theme='dark'] 覆盖 */
+      /* 主题变量（通过 body[data-theme='light'] / body[data-theme='dark'] 切换） */
       --bg: #0d1117;
       --surface: #161b22;
       --border: #30363d;
@@ -38,7 +38,7 @@
       --header-h: 52px;
     }
 
-    /* 亮色主题（默认） */
+    /* 亮色主题 */
     body[data-theme='light'] {
       --bg: #f5f7fb;
       --surface: #ffffff;
@@ -75,7 +75,7 @@
       overflow: hidden;
     }
 
-    /* ── Header ── */
+    /* 顶部 Header */
     header {
       height: var(--header-h);
       background: var(--surface);
@@ -133,14 +133,14 @@
       border-color: var(--accent);
     }
 
-    /* ── Layout ── */
+    /* 工作区容器 */
     .workspace {
       flex: 1;
       display: flex;
       overflow: hidden;
     }
 
-    /* ── Sidebar ── */
+    /* 左侧侧边栏 */
     aside {
       width: var(--sidebar-w);
       background: var(--surface);
@@ -237,7 +237,7 @@
       color: var(--muted);
     }
 
-    /* ── Main Panel ── */
+    /* 右侧主内容区域 */
     main {
       flex: 1;
       display: flex;
@@ -268,7 +268,7 @@
       text-align: center;
     }
 
-    /* ── Metrics Drawer ── */
+    /* 右侧指标抽屉 */
     .drawer {
       width: 420px;
       height: 100%;
@@ -599,29 +599,29 @@
 
 <body>
   <div id="app">
-    <!-- ── Header ── -->
+    <!-- 顶部 Header -->
     <header>
-      <div class="logo">Open<span>Talon</span></div>
-      <span style="color:var(--muted);font-size:.8rem;">设备拓扑管理平台</span>
-      <div class="status-pill">{{ onlineCount }} 台在线</div>
+      <div class="logo">Open<span>Talon</span> · 利爪</div>
+      <span style="color:var(--muted);font-size:.8rem;">利爪 · 局域网拓扑与性能监控</span>
+      <div class="status-pill">{{ onlineCount }} 台在线设备</div>
       <div class="theme-toggle">
         <span>主题</span>
         <button class="theme-toggle-btn"
                 :class="{active: theme==='light'}"
-                @click="setTheme('light')">浅色</button>
+                @click="setTheme('light')">亮色</button>
         <button class="theme-toggle-btn"
                 :class="{active: theme==='dark'}"
-                @click="setTheme('dark')">深色</button>
+                @click="setTheme('dark')">暗色</button>
       </div>
     </header>
 
     <div class="workspace" style="position:relative;">
-      <!-- ── Sidebar ── -->
+      <!-- 左侧设备列表 -->
       <aside>
         <div class="sidebar-head">设备列表</div>
         <div class="device-list">
           <template v-for="group in groupedDevices" :key="group.name">
-            <div class="group-label">{{ group.name || '默认分组' }}</div>
+            <div class="group-label">{{ group.name || '未分组' }}</div>
             <template v-for="dev in group.devices" :key="dev.id">
               <div class="device-item"
                    :class="[
@@ -640,17 +640,17 @@
             </template>
           </template>
           <div v-if="!allDevices.length" style="padding:20px 14px;color:var(--muted);font-size:.8rem;">
-            暂无设备。启动 Agent 后将自动显示。
+            暂无设备，请先在终端运行 Agent 加入。
           </div>
         </div>
         <!-- Join bar -->
         <div class="join-bar">
-          <input class="join-input" id="join-addr" v-model="joinAddr" placeholder="设备 IP:端口" @keyup.enter="joinDevice">
-          <button class="join-btn" @click="joinDevice">纳管</button>
+          <input class="join-input" id="join-addr" v-model="joinAddr" placeholder="请输入要加入的服务器 IP" @keyup.enter="joinDevice">
+          <button class="join-btn" @click="joinDevice">加入</button>
         </div>
       </aside>
 
-      <!-- ── Topology Canvas ── -->
+      <!-- 右侧拓扑画布 -->
       <main>
         <div class="topo-area">
           <div id="topo-canvas"></div>
@@ -659,24 +659,24 @@
               <circle cx="12" cy="12" r="9" />
               <path d="M12 8v4l3 3" />
             </svg>
-            <p style="margin-top:10px">等待设备接入…</p>
-            <p style="font-size:.72rem;margin-top:4px">运行 <code
+            <p style="margin-top:10px">暂无拓扑数据</p>
+            <p style="font-size:.72rem;margin-top:4px">请在终端执行 <code
                 style="color:var(--accent)">opentalon agent --join &lt;server-ip&gt;</code></p>
           </div>
         </div>
       </main>
 
-      <!-- ── Metrics Drawer ── -->
+      <!-- 右侧指标抽屉 -->
       <div class="drawer" :class="{open: drawerOpen}" id="metrics-drawer">
         <div class="drawer-head">
           <div class="dot" :class="selected?.is_online ? 'online':'offline'"></div>
-          <h3>{{ selected ? (selected.remark || selected.hostname) : '—' }}</h3>
-          <button class="close-btn" id="close-drawer" @click="drawerOpen=false">✕</button>
+          <h3>{{ selected ? (selected.remark || selected.hostname) : '未选择设备' }}</h3>
+          <button class="close-btn" id="close-drawer" @click="drawerOpen=false">×</button>
         </div>
         <div class="drawer-body" v-if="selected">
           <!-- Editable basics -->
           <div>
-            <div class="drawer-section-title">设备信息</div>
+            <div class="drawer-section-title">基础信息</div>
             <div class="drawer-form-row">
               <label style="font-size:.75rem;color:var(--muted);">主机名（由 Agent 上报）</label>
               <div class="drawer-input" style="border-style:dashed;cursor:default;">
@@ -684,12 +684,12 @@
               </div>
             </div>
             <div class="drawer-form-row">
-              <label style="font-size:.75rem;color:var(--muted);">备注名称</label>
-              <input class="drawer-input" v-model="editForm.remark" placeholder="用于界面展示的备注名称">
+              <label style="font-size:.75rem;color:var(--muted);">备注</label>
+              <input class="drawer-input" v-model="editForm.remark" placeholder="给这台设备加一点说明">
             </div>
             <div class="drawer-form-row">
               <label style="font-size:.75rem;color:var(--muted);">分组</label>
-              <input class="drawer-input" v-model="editForm.group" placeholder="如：网络设备、虚拟化、工作站">
+              <input class="drawer-input" v-model="editForm.group" placeholder="例如：办公网络、实验室等">
             </div>
             <div class="drawer-actions">
               <div>
@@ -726,26 +726,26 @@
           <!-- Connections & Bandwidth -->
           <div class="stats-grid">
             <div class="stat-card">
-              <div class="stat-label">TCP 连接</div>
-              <div class="stat-value tcp">{{ metrics?.tcp_connections ?? '—' }}</div>
+              <div class="stat-label">TCP 连接数</div>
+              <div class="stat-value tcp">{{ metrics?.tcp_connections ?? '-' }}</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">UDP 连接</div>
-              <div class="stat-value udp">{{ metrics?.udp_connections ?? '—' }}</div>
+              <div class="stat-label">UDP 连接数</div>
+              <div class="stat-value udp">{{ metrics?.udp_connections ?? '-' }}</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">下行带宽</div>
+              <div class="stat-label">下行流量</div>
               <div class="stat-value rx">{{ formatBytes(metrics?.rx_bytes) }}</div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">上行带宽</div>
+              <div class="stat-label">上行流量</div>
               <div class="stat-value tx">{{ formatBytes(metrics?.tx_bytes) }}</div>
             </div>
           </div>
 
           <!-- Gateway -->
           <div class="stat-card">
-            <div class="stat-label">默认网关</div>
+            <div class="stat-label">网关 IP</div>
             <div style="font-size:.85rem;margin-top:4px;">{{ selected.gateway_ip || metrics?.gateway_ip || '未知' }}</div>
           </div>
           <!-- Network info -->
@@ -778,7 +778,7 @@
       </div>
     </div><!-- .workspace -->
 
-    <!-- ── Login Overlay ── -->
+    <!-- 登录弹层 -->
     <div class="login-overlay" v-if="showLogin">
       <div class="login-box">
         <div class="logo" style="justify-content:center; margin-bottom: 20px;">Open<span>Talon</span></div>
@@ -806,19 +806,19 @@
         const metrics = ref(null);
         const drawerOpen = ref(false);
         const joinAddr = ref('');
-        // Hostname is reported by agent and immutable from Web UI; only allow remark + group edits.
+        // 备注和分组可在 Web 界面编辑；主机名由 Agent 上报
         const editForm = ref({ remark: '', group: '' });
-        // 主题：light | dark，默认浅色
+        // 主题（light | dark）
         const theme = ref('light');
         const saving = ref(false);
         let g6Graph = null;
         let gaugeCharts = {};
         let pollTimer = null;
 
-        // ── Flatten tree ──────────────────────────────────────────────────────────
+        // 将树结构拍平成一维数组，便于统计与列表展示
         const allDevices = computed(() => flattenTree(tree.value));
         const onlineCount = computed(() => allDevices.value.filter(d => d.is_online).length);
-        // 左侧列表：同一分组内按分组并行展示，不体现父子缩进
+        // 按分组聚合设备，用于左侧分组列表
         const groupedDevices = computed(() => {
           const map = {};
           allDevices.value.forEach(dev => {
@@ -831,70 +831,71 @@
         });
 
         const SI = 'https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/';
-        // 有序优先级规则列表：[关键字数组, icon文件名, 可选颜色（未用）]
+        // OS 识别规则：[关键字数组, icon 路径, 品牌色]
         const osIconRules = [
           // Windows
-          [['windows', 'win'], SI + 'windows11.svg'],
-          // macOS
-          [['macos', 'mac', 'darwin', 'osx'], SI + 'apple.svg'],
+          [['windows', 'win'], SI + 'windows11.svg', '#0078D4'],
+          // macOS / Apple
+          [['macos', 'mac', 'darwin', 'osx'], SI + 'apple.svg', '#000000'],
           // Android
-          [['android'], SI + 'android.svg'],
+          [['android'], SI + 'android.svg', '#3DDC84'],
           // Debian
-          [['debian'], SI + 'debian.svg'],
+          [['debian'], SI + 'debian.svg', '#A81D33'],
           // Ubuntu
-          [['ubuntu'], SI + 'ubuntu.svg'],
+          [['ubuntu'], SI + 'ubuntu.svg', '#E95420'],
           // Rocky Linux
-          [['rocky'], SI + 'rockylinux.svg'],
+          [['rocky'], SI + 'rockylinux.svg', '#10B981'],
           // CentOS
-          [['centos'], SI + 'centos.svg'],
+          [['centos'], SI + 'centos.svg', '#262577'],
           // Alpine
-          [['alpine'], SI + 'alpinelinux.svg'],
+          [['alpine'], SI + 'alpinelinux.svg', '#0D597F'],
           // Raspberry Pi / Raspbian
-          [['raspberry', 'raspbian'], SI + 'raspberrypi.svg'],
+          [['raspberry', 'raspbian'], SI + 'raspberrypi.svg', '#C51A4A'],
           // Arch Linux
-          [['arch'], SI + 'archlinux.svg'],
+          [['arch'], SI + 'archlinux.svg', '#1793D1'],
           // Fedora
-          [['fedora'], SI + 'fedora.svg'],
+          [['fedora'], SI + 'fedora.svg', '#51A2DA'],
           // openSUSE
-          [['opensuse', 'suse'], SI + 'opensuse.svg'],
+          [['opensuse', 'suse'], SI + 'opensuse.svg', '#73BA25'],
           // Proxmox / PVE
-          [['proxmox', 'pve'], SI + 'proxmox.svg'],
-          // OpenWrt
-          [['openwrt'], SI + 'openwrt.svg'],
-          // 梅林固件（华硕路由）
-          [['merlin', 'asus'], SI + 'asus.svg'],
-          // 飞牛 NAS / fnos
-          [['fnos', '飞牛', 'truenas'], SI + 'truenas.svg'],
+          [['proxmox', 'pve'], SI + 'proxmox.svg', '#E57000'],
+          // OpenWrt 路由
+          [['openwrt'], SI + 'openwrt.svg', '#00B5E2'],
+          // 梅林固件（华硕）
+          [['merlin', 'asus'], SI + 'asus.svg', '#0F5ABB'],
+          // NAS / FNOS
+          [['fnos', 'fnos', 'truenas'], SI + 'truenas.svg', '#0095D5'],
           // 群晖 Synology
-          [['synology', 'dsm'], SI + 'synology.svg'],
+          [['synology', 'dsm'], SI + 'synology.svg', '#5C5C5C'],
           // UNRAID
-          [['unraid'], SI + 'unraid.svg'],
+          [['unraid'], SI + 'unraid.svg', '#F15B2A'],
           // FreeBSD
-          [['freebsd', 'bsd'], SI + 'freebsd.svg'],
+          [['freebsd', 'bsd'], SI + 'freebsd.svg', '#AB2B28'],
           // Linux 通用
-          [['linux'], SI + 'linux.svg'],
-          // 打印机
-          [['print'], SI + 'adobeacrobatreader.svg'],
-          // 路由器 / 交换机（通用网络）
-          [['router', 'switch', '路由', '交换'], SI + 'cisco.svg'],
+          [['linux'], SI + 'linux.svg', '#FCC624'],
+          // 打印机等
+          [['print'], SI + 'adobeacrobatreader.svg', '#EC1C24'],
+          // 企业路由 / 交换机
+          [['router', 'switch', 'router', 'switch'], SI + 'cisco.svg', '#1BA0D7'],
           // 摄像头 / IP Camera
-          [['camera', 'cam', '摄像'], SI + 'opencv.svg'],
-          // NAS 通用
-          [['nas', 'storage'], SI + 'qnap.svg'],
-          // 默认
-          [['default'], SI + 'serverfault.svg']
+          [['camera', 'cam', 'camera'], SI + 'opencv.svg', '#5C3EE8'],
+          // NAS 设备
+          [['nas', 'storage'], SI + 'qnap.svg', '#005EB8'],
+          // 默认服务器图标
+          [['default'], SI + 'serverfault.svg', '#58a6ff']
         ];
 
-        function getOsIconUrl(osName) {
+        function getOsIcon(osName) {
           const lower = (osName || '').toLowerCase();
-          for (const [keys, url] of osIconRules) {
-            if (keys[0] === 'default') return url;
-            if (keys.some(k => lower.includes(k))) return url;
+          for (const [keys, url, color] of osIconRules) {
+            if (keys[0] === 'default') return { url, color };
+            if (keys.some(k => lower.includes(k))) return { url, color };
           }
-          return osIconRules[osIconRules.length - 1][1]; // default
+          const [, url, color] = osIconRules[osIconRules.length - 1];
+          return { url, color };
         }
 
-        // SVG 图标颜色缓存（white）
+        // SVG 图标可以按需统一着色（例如 white）
         const _iconCache = {};
         async function fetchColoredIcon(url, color = '#e6edf3') {
           const key = url + color;
@@ -902,7 +903,7 @@
           try {
             const res = await fetch(url);
             let svg = await res.text();
-            // 给 SVG 加上 fill 颜色使其变为白色/浅色
+            // 将 SVG 的 fill 属性统一替换为指定颜色
             svg = svg.replace(/<svg /, `<svg fill="${color}" `);
             const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
             _iconCache[key] = dataUrl;
@@ -919,20 +920,32 @@
           return result;
         }
 
+        // 记录已经在拓扑中出现过的设备 ID，用于控制“首次加入”特效
+        const seenNodeIds = new Set();
+
         function buildG6Data(treeData, parentId = null, nodes = [], edges = []) {
           (treeData || []).forEach(dev => {
             const osRaw = dev.os || '';
             const osHint = (osRaw + ' ' + (dev.hostname || '')).trim() || 'Linux';
-            const bgColor = dev.is_online ? '#f0f7ff' : '#f6f8fa';
-            const strokeColor = dev.is_online ? '#0969da' : '#d0d7de';
-            const iconUrl = getOsIconUrl(osHint);
+            const online = dev.is_online;
+            const bgColor = online ? '#f0f7ff' : '#f6f8fa';
+            const strokeColor = online ? '#0969da' : '#d0d7de';
+            const idStr = String(dev.id);
+            const justJoined = !seenNodeIds.has(idStr);
+            if (justJoined) {
+              // 只在第一次看到该设备 ID 时记入，后续刷新不再触发“新加入”动画
+              seenNodeIds.add(idStr);
+            }
+            const icon = getOsIcon(osHint);
             nodes.push({
-              id: String(dev.id),
+              id: idStr,
               label: dev.hostname,
               type: 'ot-device-node',
-              iconUrl,
+              iconUrl: icon.url,
+              iconColor: icon.color,
               os: osRaw || osHint,
-              isOnline: dev.is_online,
+              isOnline: online,
+              justJoined,
               style: { fill: bgColor, stroke: strokeColor, lineWidth: 2 },
               stateStyles: {
                 selected: { fill: bgColor, stroke: '#58a6ff', lineWidth: 2.5, shadowColor: '#58a6ff', shadowBlur: 12 },
@@ -947,7 +960,7 @@
           return { nodes, edges };
         }
 
-        // 注册自定义节点：圆形背景 + 中央白色 SVG 图标 + 呼吸光环
+        // 自定义节点：圆形节点 + SVG 图标 + 动画效果
         function registerOtNode() {
           if (G6.Global.customNodes && G6.Global.customNodes['ot-device-node']) return;
           G6.registerNode('ot-device-node', {
@@ -956,14 +969,15 @@
               const r = size / 2;
               const fill = (cfg.style && cfg.style.fill) || '#f0f7ff';
               const stroke = (cfg.style && cfg.style.stroke) || '#0969da';
+              const isNew = !!cfg.justJoined;
 
-              // Breathing outer ring（仅在线设备显示）
+              // 在线设备的呼吸波纹，从节点圆环向外扩散
               if (cfg.isOnline) {
                 const pulse = group.addShape('circle', {
                   attrs: {
                     x: 0,
                     y: 0,
-                    r: r + 6,
+                    r: r,
                     stroke: 'rgba(9,105,218,0.45)',
                     lineWidth: 1,
                     fill: 'rgba(9,105,218,0.08)',
@@ -973,7 +987,7 @@
                 });
                 pulse.animate(
                   ratio => ({
-                    r: r + 6 + ratio * 6,
+                    r: r + 10 * ratio,
                     opacity: 0.6 - ratio * 0.6,
                   }),
                   {
@@ -984,28 +998,69 @@
                 );
               }
               const shape = group.addShape('circle', {
-                attrs: { x: 0, y: 0, r, fill, stroke, lineWidth: 2 },
+                attrs: { x: 0, y: 0, r: isNew ? 0 : r, fill, stroke, lineWidth: 2 },
                 name: 'node-circle',
                 draggable: true
               });
-              // 图标 image，先用占位，后面用 fetchColoredIcon 更新
+              // 设备图标（按品牌色着色的 SVG）
               const iconSize = 22;
               const img = group.addShape('image', {
                 attrs: {
                   x: -iconSize / 2, y: -iconSize / 2,
-                  width: iconSize, height: iconSize,
-                  img: cfg.iconUrl || ''
+                  width: isNew ? 0 : iconSize,
+                  height: isNew ? 0 : iconSize,
+                  // 新节点动画期间先不贴图标，避免首帧出现放大的 SVG
+                  img: ''
                 },
                 name: 'node-icon',
                 draggable: true
               });
-              // 异步替换为白色图标
-              if (cfg.iconUrl) {
-                fetchColoredIcon(cfg.iconUrl, '#e6edf3').then(dataUrl => {
-                  try { img.attr('img', dataUrl); } catch (e) { }
+              const applyIcon = () => {
+                if (!cfg.iconUrl) return;
+                // 在线用品牌色，离线统一用灰色，让图标与外环一起“变灰”
+                const baseColor = cfg.iconColor || '#58a6ff';
+                const color = cfg.isOnline ? baseColor : '#8b949e';
+                fetchColoredIcon(cfg.iconUrl, color).then(dataUrl => {
+                  try { img.attr('img', dataUrl); } catch (e) {}
                 });
+              };
+              // 新加入节点：从 0 尺寸缓动到正常大小
+              if (isNew) {
+                shape.animate(
+                  ratio => ({
+                    r: r * Math.max(ratio, 0.2),
+                  }),
+                  {
+                    duration: 1000,
+                    easing: 'easeCubic',
+                  }
+                );
+                img.animate(
+                  ratio => {
+                    const k = Math.max(ratio, 0.2);
+                    const w = iconSize * k;
+                    const h = iconSize * k;
+                    return {
+                      width: w,
+                      height: h,
+                      x: -w / 2,
+                      y: -h / 2,
+                    };
+                  },
+                  {
+                    duration: 1000,
+                    easing: 'easeCubic',
+                    // 动画结束后再贴上图标，避免出现 1 帧大图
+                    callback() {
+                      applyIcon();
+                    }
+                  }
+                );
+              } else {
+                // 已存在的节点直接使用彩色图标
+                applyIcon();
               }
-              // 标签（手动绘制在圆圈下方，避免 G6 默认标签被圆圈遮挡）
+              // 根据当前主题颜色渲染节点标签文字
               const bodyStyle = window.getComputedStyle(document.body);
               const labelColor = bodyStyle.getPropertyValue('--text') || '#24292f';
               group.addShape('text', {
@@ -1047,7 +1102,7 @@
           }, 'single-node');
         }
 
-        // ── Auth & API Wrapper ────────────────────────────────────────────────────
+        // 控制平面认证与 API 封装（使用 JWT）
         const token = ref(localStorage.getItem('opentalon_jwt') || '');
         const showLogin = ref(!token.value);
         const loginForm = ref({ username: '', password: '', error: '' });
@@ -1097,7 +1152,7 @@
           }
         }
 
-        // ── Update Fetch Calls ────────────────────────────────────────────────────
+        // 设备树拉取与刷新
         async function fetchTree() {
           if (!token.value) return; // Wait for login
           try {
@@ -1116,7 +1171,7 @@
               }
             }
           } catch (e) {
-            // 在生产环境下不再注入 mock 数据，保持当前拓扑不变，避免出现不存在的示例设备
+            // 后端暂不可用时，可以在此挂载 mock 数据调试
             console.error('fetchTree error', e);
           }
         }
@@ -1133,7 +1188,7 @@
           }
         }
 
-        // ── Chart.js Gauges ───────────────────────────────────────────────────────
+        // Chart.js 仪表盘初始化
         function initGauges() {
           ['cpu', 'mem', 'disk'].forEach(k => {
             const el = document.getElementById(`gauge-${k}`);
@@ -1174,9 +1229,9 @@
           });
         }
 
-        // ── Utilities ─────────────────────────────────────────────────────────────
+        // 字节数转为可读带宽字符串
         function formatBytes(b) {
-          if (b == null) return '—';
+          if (b == null) return '?';
           if (b < 1024) return b + ' B/s';
           if (b < 1048576) return (b / 1024).toFixed(1) + ' KB/s';
           return (b / 1048576).toFixed(2) + ' MB/s';
@@ -1190,21 +1245,21 @@
         function mockData() {
           return [
             {
-              id: 1, hostname: 'Router-Main', ip: '192.168.1.1', os: 'OpenWrt', gateway_ip: '', group: '网络设备', network_mode: 'Bridged', is_online: true, children: [
+              id: 1, hostname: 'Router-Main', ip: '192.168.1.1', os: 'OpenWrt', gateway_ip: '', group: '核心网络', network_mode: 'Bridged', is_online: true, children: [
                 {
                   id: 3, hostname: 'PVE-Node1', ip: '192.168.1.10', os: 'Proxmox', gateway_ip: '192.168.1.1', group: '虚拟化', network_mode: 'Bridged', is_online: true, children: [
-                    { id: 5, hostname: 'VM-fnos', ip: '192.168.1.20', os: 'FNOS', gateway_ip: '192.168.1.10', group: '虚拟化', network_mode: 'Bridged', is_online: false, children: [] },
-                    { id: 6, hostname: 'VM-rocky', ip: '192.168.1.21', os: 'Rocky 9', gateway_ip: '192.168.1.10', group: '虚拟化', network_mode: 'NAT', is_online: true, children: [] }
+                    { id: 5, hostname: 'VM-fnos', ip: '192.168.1.20', os: 'FNOS', gateway_ip: '192.168.1.10', group: '存储', network_mode: 'Bridged', is_online: false, children: [] },
+                    { id: 6, hostname: 'VM-rocky', ip: '192.168.1.21', os: 'Rocky 9', gateway_ip: '192.168.1.10', group: '应用', network_mode: 'NAT', is_online: true, children: [] }
                   ]
                 },
-                { id: 4, hostname: 'Win10-NUC', ip: '192.168.1.50', os: 'Windows', gateway_ip: '192.168.1.1', group: '工作站', network_mode: 'Bridged', is_online: true, children: [] }
+                { id: 4, hostname: 'Win10-NUC', ip: '192.168.1.50', os: 'Windows', gateway_ip: '192.168.1.1', group: '办公终端', network_mode: 'Bridged', is_online: true, children: [] }
               ]
             },
-            { id: 2, hostname: 'Router-Side', ip: '192.168.1.2', os: 'Merlin', gateway_ip: '192.168.1.1', group: '网络设备', network_mode: 'Bridged', is_online: true, children: [] }
+            { id: 2, hostname: 'Router-Side', ip: '192.168.1.2', os: 'Merlin', gateway_ip: '192.168.1.1', group: '边缘网络', network_mode: 'Bridged', is_online: true, children: [] }
           ];
         }
 
-        // ── Interaction ───────────────────────────────────────────────────────────
+        // 选中设备时，打开右侧抽屉并拉取指标
         function selectDevice(dev) {
           selected.value = dev;
           drawerOpen.value = true;
@@ -1226,11 +1281,11 @@
         async function joinDevice() {
           if (!joinAddr.value.trim()) return;
           const host = joinAddr.value.trim();
-          alert(`尝试用 SSH 纳管 ${host}... (此功能待后端实现)`);
+          alert(`请通过 SSH 登录到 ${host} 手动安装 Agent（该功能暂未自动化）`);
           joinAddr.value = '';
         }
 
-        // ── Render G6 Topology ────────────────────────────────────────────────────
+        // 渲染拓扑图（基于 AntV G6）
         function renderG6(treeData) {
           if (!document.getElementById('topo-canvas') || treeData.length === 0) return;
           const { nodes, edges } = buildG6Data(treeData);
@@ -1248,7 +1303,7 @@
                 const model = e.item.getModel();
                 outDiv.innerHTML = `
                   <div style="padding: 6px 10px; font-size: 11px; color: #e6edf3; background: #161b22; border: 1px solid #30363d; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-                    ${model.os || model.label || '未知系统'}
+                    ${model.os || model.label || '未知设备'}
                   </div>`;
                 return outDiv;
               }
@@ -1284,7 +1339,7 @@
               nodeStateStyles: {}
             });
 
-            // 点击单个节点选中 + 同步到右侧抽屉
+            // 点击节点高亮 & 打开右侧抽屉
             g6Graph.on('node:click', (e) => {
               const deviceId = parseInt(e.item.getModel().id, 10);
               const dev = allDevices.value.find(d => d.id === deviceId);
@@ -1293,7 +1348,7 @@
             g6Graph.on('node:mouseenter', ({ item }) => g6Graph.setItemState(item, 'hover', true));
             g6Graph.on('node:mouseleave', ({ item }) => g6Graph.setItemState(item, 'hover', false));
 
-            // 框选多节点
+            // 框选（BrushSelect）多节点
             let brushSelectedIds = new Set();
             let dragContext = null;
 
@@ -1307,7 +1362,7 @@
               });
             });
 
-            // 拖拽时如果节点在当前框选集合中，则整体一起移动
+            // 记录拖拽前位置，实现多选节点一起拖拽
             g6Graph.on('node:dragstart', (e) => {
               const node = e.item;
               const id = node.getID();
@@ -1348,7 +1403,7 @@
             });
           }
 
-          // 首次渲染用 data+render；后续更新用 changeData（支持动态增删节点）
+          // 首次渲染用 data+render；后续更新用 changeData
           const isFirstRender = !g6Graph._hasRendered;
           if (isFirstRender) {
             g6Graph.data({ nodes, edges });
@@ -1356,14 +1411,8 @@
             g6Graph._hasRendered = true;
             g6Graph.fitView();
           } else {
-            const zoom = g6Graph.getZoom();
-            const center = g6Graph.getPointByCanvas(g6Graph.getWidth() / 2, g6Graph.getHeight() / 2);
             g6Graph.changeData({ nodes, edges });
-            // 尽量保持用户当前缩放和视角不变，避免更新数据后图标突然变大或变小
-            g6Graph.zoomTo(zoom, { x: g6Graph.getWidth() / 2, y: g6Graph.getHeight() / 2 });
-            if (center) {
-              g6Graph.focusPoint(center.x, center.y);
-            }
+            g6Graph.fitView();
           }
 
           // Sync selection
@@ -1374,7 +1423,7 @@
         }
 
         onMounted(() => {
-          // 初始化主题（默认 light，可从 localStorage 恢复）
+          // 初始化主题：从 localStorage 还原（默认为 light）
           const saved = localStorage.getItem('opentalon_theme');
           if (saved === 'dark' || saved === 'light') {
             theme.value = saved;
@@ -1382,7 +1431,7 @@
           document.body.dataset.theme = theme.value;
 
           fetchTree();
-          // 拓扑和基础信息刷新频率：8 秒一轮，兼顾 200 台设备下的压力与实时性
+          // 每 8 秒轮询一次设备树和指标
           setInterval(fetchTree, 8000);
         });
 
@@ -1425,7 +1474,7 @@
             showLogin.value = true;
             return;
           }
-          if (!confirm(`确定删除设备 ${selected.value.hostname || selected.value.ip} 吗？`)) {
+          if (!confirm(`确定要删除设备 ${selected.value.hostname || selected.value.ip} 吗？`)) {
             return;
           }
           try {

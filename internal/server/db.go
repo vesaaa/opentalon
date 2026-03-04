@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -18,12 +19,15 @@ import (
 )
 
 var DB *gorm.DB
+var topoMu sync.Mutex
+
+// latestMetrics caches the most recent metrics per device in memory so that
+// control-plane API 可以在 SQLite 出现异常或延迟时仍然返回最近一次上报的数据。
+var latestMetrics sync.Map // map[uint]*models.Metrics
 
 // heartbeatTimeout defines how long a device can stay silent before being
-// considered offline. This is intentionally not configurable via config.yaml
-// to keep user-facing config minimal (ports, DB, auth); it can be tuned in
-// code if needed.
-const heartbeatTimeout = 2 * time.Minute
+// considered offline. 此处使用较短的 30s，方便本地/小规模环境快速感知离线状态。
+const heartbeatTimeout = 30 * time.Second
 
 // InitDB opens the database and runs AutoMigrate.
 func InitDB(cfg *config.Config) error {
@@ -122,21 +126,28 @@ func UpsertDevice(payload RegisterPayload) (*models.Device, error) {
 }
 
 // wireParent finds the device whose IP matches dev.GatewayIP and sets dev.ParentID.
-// This enables automatic topology inference from the default gateway alone.
+// 优先通过对方的主 IP 精确匹配；若不存在，则再尝试通过 LANIPs 做“完整 IP token 匹配”，
+// 用于多网段/多内网地址场景，避免把 192.168.1.22 误当作 192.168.1.2 的父节点。
 func wireParent(dev *models.Device) {
 	var parent models.Device
-	// 优先通过设备主 IP 匹配，其次通过 LANIPs（多网段设备的任一内网地址）。
-	if err := DB.
-		Where("ip = ? OR lan_ips LIKE ?", dev.GatewayIP, "%"+dev.GatewayIP+"%").
-		First(&parent).Error; err != nil {
-		return // parent not (yet) registered; will be resolved on next upsert
+	// 1) 精确匹配主 IP
+	if err := DB.Where("ip = ?", dev.GatewayIP).First(&parent).Error; err != nil {
+		// 2) 若没有主 IP 匹配，再尝试在 LANIPs 中做“完整 token 匹配”
+		// LANIPs 以逗号分隔，例如 "192.168.1.2,10.0.0.1"；我们只在某个 token
+		// 与网关 IP 完全相等时才认为是父节点，防止 192.168.1.22 命中 LIKE '%192.168.1.2%'。
+		gw := dev.GatewayIP
+		if err := DB.
+			Where(`lan_ips = ? OR lan_ips LIKE ? OR lan_ips LIKE ? OR lan_ips LIKE ?`,
+				gw, gw+",%", "%,"+gw, "%,"+gw+",%").
+			First(&parent).Error; err != nil {
+			return // parent not (yet) registered; will be resolved on next upsert
+		}
 	}
 	if parent.ID == dev.ID {
 		return // self-reference guard
 	}
 	DB.Model(dev).Update("parent_id", parent.ID)
 	dev.ParentID = &parent.ID
-	log.Printf("[db] wired %s → parent %s (id=%d)", dev.IP, parent.IP, parent.ID)
 }
 
 // SaveMetrics persists a metrics snapshot and marks the device online.
@@ -149,6 +160,9 @@ func SaveMetrics(deviceID uint, m *models.Metrics) error {
 	if err := DB.Create(m).Error; err != nil {
 		return err
 	}
+	// 更新内存缓存，供控制面快速读取最新一次上报。
+	copy := *m
+	latestMetrics.Store(deviceID, &copy)
 	// Retain only the latest N rows per device (e.g., ~10 minutes @ 5s interval).
 	const maxSnapshotsPerDevice = 120
 	// Delete all but the newest N by reported_at.
@@ -165,31 +179,58 @@ func SaveMetrics(deviceID uint, m *models.Metrics) error {
 	return nil
 }
 
-// MaybeWireParentByGateway is a lightweight helper used on the metrics ingest path.
-// It only recalculates ParentID when it is currently nil OR when the reported
-// GatewayIP has changed, to avoid on-every-metrics churn.
+// rebuildDirtyTopologyLocked 批量处理所有 TopologyDirty=true 的设备。
+// 调用方必须已经持有 topoMu。
+func rebuildDirtyTopologyLocked() {
+	var dirty []models.Device
+	if err := DB.Where("topology_dirty = ?", true).Find(&dirty).Error; err != nil {
+		return
+	}
+
+	for i := range dirty {
+		d := &dirty[i]
+
+		// 记录调用前的 ParentID，用于判断本次是否有挂上父节点。
+		beforeParent := d.ParentID
+
+		if d.GatewayIP != "" {
+			wireParent(d)
+		} else {
+			DB.Model(d).Update("parent_id", nil)
+			d.ParentID = nil
+		}
+
+		// 如果没有网关，或者这次 ParentID 发生变化，则认为本次已处理完成，清除脏标记。
+		// 对于有网关但仍未找到父节点的设备，保持 TopologyDirty=true，等待下次批处理（例如父节点稍后才注册）。
+		if d.GatewayIP == "" || d.ParentID != beforeParent {
+			DB.Model(d).Update("topology_dirty", false)
+		}
+	}
+}
+
+// MaybeWireParentByGateway 在 metrics 上报路径上触发拓扑重算。
+// 它会：1) 标记当前设备为 TopologyDirty
+//      2) 在全局锁下批量处理所有 TopologyDirty=true 的设备。
 func MaybeWireParentByGateway(dev *models.Device, gateway string) {
-	if dev == nil {
-		return
-	}
-	if gateway == "" {
+	if dev == nil || gateway == "" {
 		return
 	}
 
-	// If parent is already set and gateway unchanged, nothing to do.
-	if dev.ParentID != nil && dev.GatewayIP == gateway {
-		return
-	}
+	topoMu.Lock()
+	defer topoMu.Unlock()
 
-	// Update gateway IP and try to (re)wire parent.
-	if err := DB.Model(dev).Update("gateway_ip", gateway).Error; err != nil {
-		return
+	// 标记当前设备为待处理，并按需更新网关 IP。
+	updates := map[string]any{
+		"topology_dirty": true,
 	}
-	dev.GatewayIP = gateway
+	if gateway != dev.GatewayIP {
+		updates["gateway_ip"] = gateway
+		dev.GatewayIP = gateway
+	}
+	DB.Model(dev).Updates(updates)
 
-	if dev.ParentID == nil {
-		wireParent(dev)
-	}
+	// 批量处理所有 TopologyDirty=true 的设备。
+	rebuildDirtyTopologyLocked()
 }
 
 // GetDeviceTree returns all devices as a nested tree.
@@ -218,19 +259,16 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 
 		hasMetrics := metricsSet[d.ID]
 
-		// 推导高层状态：unknown / online / offline
+		// 先根据 IsOnline + LastSeen 推导“实时在线”状态，再结合是否有 metrics 区分 offline / unknown。
+		online := d.IsOnline
+		if !d.LastSeen.IsZero() && now.Sub(d.LastSeen) > heartbeatTimeout {
+			online = false
+		}
 		status := "unknown"
-		online := false
-		if hasMetrics {
-			online = d.IsOnline
-			if !d.LastSeen.IsZero() && now.Sub(d.LastSeen) > heartbeatTimeout {
-				online = false
-			}
-			if online {
-				status = "online"
-			} else {
-				status = "offline"
-			}
+		if online {
+			status = "online"
+		} else if hasMetrics {
+			status = "offline"
 		}
 
 		nodeMap[d.ID] = &models.DeviceTree{
@@ -271,9 +309,29 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 }
 
 // GetLatestMetrics returns the most recent Metrics row for a device.
+// 首选通过 DeviceID 查询；如果没有记录，则退化为按 LocalIP 匹配设备 IP，
+// 兼容历史或异常情况下 DeviceID 不一致的 metrics 行。
 func GetLatestMetrics(deviceID uint) (*models.Metrics, error) {
+	// 优先使用内存缓存，保证“刚上报完立刻点开抽屉”时一定有数据。
+	if v, ok := latestMetrics.Load(deviceID); ok {
+		if mm, ok2 := v.(*models.Metrics); ok2 {
+			return mm, nil
+		}
+	}
+
 	var m models.Metrics
-	err := DB.Where("device_id = ?", deviceID).Order("reported_at desc").First(&m).Error
+	err := DB.Where("device_id = ?", deviceID).
+		Order("reported_at desc").
+		First(&m).Error
+	if err == gorm.ErrRecordNotFound {
+		var dev models.Device
+		if e2 := DB.First(&dev, deviceID).Error; e2 != nil {
+			return nil, err
+		}
+		err = DB.Where("local_ip = ?", dev.IP).
+			Order("reported_at desc").
+			First(&m).Error
+	}
 	return &m, err
 }
 
