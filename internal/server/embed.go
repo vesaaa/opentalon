@@ -22,11 +22,11 @@ func RegisterStaticFiles(r *gin.Engine) {
 		panic("embed: web/dist sub-fs failed: " + err.Error())
 	}
 
-	// Check whether dist has real files (vs just .gitkeep).
+	// Check whether dist has a real index.html (vs 只有 .gitkeep 或零散资源).
 	entries, _ := fs.ReadDir(distFS, ".")
 	hasRealFiles := false
 	for _, e := range entries {
-		if e.Name() != ".gitkeep" {
+		if e.Name() == "index.html" {
 			hasRealFiles = true
 			break
 		}
@@ -36,7 +36,7 @@ func RegisterStaticFiles(r *gin.Engine) {
 	if hasRealFiles {
 		staticFS = http.FS(distFS)
 	} else {
-		// Fall back to web/ skeleton (contains index.html)
+		// Fall back to web/ skeleton (contains index.html等开发版资源)
 		webRoot, _ := fs.Sub(webui.FS, "web")
 		staticFS = http.FS(webRoot)
 	}
@@ -62,6 +62,19 @@ func RegisterStaticFiles(r *gin.Engine) {
 		defer f.Close()
 		stat, _ := f.Stat()
 		c.DataFromReader(http.StatusOK, stat.Size(), "image/png", f, nil)
+	})
+
+	// favicon：浏览器会默认请求 /favicon.ico，这里显式返回 ICO 文件，
+	// 避免走 SPA NoRoute 时返回 index.html。
+	r.GET("/favicon.ico", func(c *gin.Context) {
+		f, err := staticFS.Open("favicon.ico")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		stat, _ := f.Stat()
+		c.DataFromReader(http.StatusOK, stat.Size(), "image/x-icon", f, nil)
 	})
 
 	// SPA fallback: ALL unmatched routes return index.html

@@ -1,0 +1,20 @@
+---
+description: 改完代码后清空 dist 并编译 Windows 版本
+alwaysApply: true
+---
+
+# 改完代码后的构建步骤
+
+每次在本项目中完成代码修改后，必须执行：
+
+1. **删除 dist 目录下的文件**  
+   删除 `dist/` 下所有文件（如 `opentalon.db`、`opentalon-windows-amd64.exe` 等），不要删除 dist 目录本身。
+
+2. **编译 Windows 版本**  
+   在项目根目录执行：
+   ```powershell
+   $env:GOOS='windows'; $env:GOARCH='amd64'; go build -ldflags='-s -w' -o dist/opentalon-windows-amd64.exe .
+   ```
+   若在 bash 环境：`GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/opentalon-windows-amd64.exe .`
+
+这样保证 `dist/opentalon-windows-amd64.exe` 始终为最新代码。
