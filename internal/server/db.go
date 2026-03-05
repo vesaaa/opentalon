@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -318,7 +319,29 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 			}
 		}
 	}
+	// 为了让前端拓扑布局稳定（同一批设备不会因为返回顺序不同而“换位置”），
+	// 在返回前对根节点及每一层 children 做一次稳定排序。
+	sortDeviceTree(roots)
 	return roots, nil
+}
+
+// sortDeviceTree 按 group、hostname、ip 的顺序对节点进行稳定排序，并递归其 children。
+func sortDeviceTree(nodes []*models.DeviceTree) {
+	sort.Slice(nodes, func(i, j int) bool {
+		a, b := nodes[i], nodes[j]
+		if a.Group != b.Group {
+			return a.Group < b.Group
+		}
+		if a.Hostname != b.Hostname {
+			return a.Hostname < b.Hostname
+		}
+		return a.IP < b.IP
+	})
+	for _, n := range nodes {
+		if len(n.Children) > 0 {
+			sortDeviceTree(n.Children)
+		}
+	}
 }
 
 // GetLatestMetrics returns the most recent Metrics row for a device.
@@ -545,6 +568,13 @@ type ScanStateInfo struct {
 	ScannerIP  string    `json:"scanner_ip"`
 	LastScanAt time.Time `json:"last_scan_at,omitempty"` // zero if never scanned
 	LastFound  int       `json:"last_found"`             // devices found in last scan
+	// TaskIssued 表示当前这轮扫描任务中，是否已经向被选中的扫描器下发过一次 scan_task。
+	// 为了避免“有扫描资格的设备在一次触发中重复上报”，我们保证：
+	//   - 每次 SetScanActive 时，ScanState 会重新初始化（TaskIssued=false）；
+	//   - 在 metrics 上报路径上，只有在 TaskIssued=false 时才返回 scan_task=true，
+	//     并立即将 TaskIssued 置为 true。
+	// 这样可以确保“同一轮触发中，每个被选中的扫描器最多只会收到一次扫描任务”。
+	TaskIssued bool `json:"-"`
 }
 
 var scanMu sync.Mutex
@@ -572,7 +602,14 @@ func TakeServerScan() bool {
 // autoStopSec: if > 0, automatically mark done after that many seconds (safety net).
 func SetScanActive(scannerIP string, cancelFn func(), autoStopSec int) {
 	scanMu.Lock()
-	activeScanState = ScanStateInfo{Running: true, ScannerIP: scannerIP}
+	activeScanState = ScanStateInfo{
+		Running:   true,
+		ScannerIP: scannerIP,
+		// 保留上一轮的统计信息，便于在 UI 中看到最近一次扫描结果。
+		LastScanAt: activeScanState.LastScanAt,
+		LastFound:  activeScanState.LastFound,
+		TaskIssued: false,
+	}
 	activeScanCancel = cancelFn
 	scanMu.Unlock()
 	if autoStopSec > 0 {
@@ -624,6 +661,31 @@ func GetScanState() ScanStateInfo {
 	scanMu.Lock()
 	defer scanMu.Unlock()
 	return activeScanState
+}
+
+// ShouldAssignScanTask decides whether the given IP 应该在当前这轮扫描中收到一次 scan_task=true。
+// 规则：
+//   1) 设备必须是当前选中的扫描器（IsElectedScanner(ip)）。
+//   2) 必须存在一轮“正在进行中的扫描任务”（Running=true 且 ScannerIP 不为空）。
+//   3) 当前 ScannerIP 必须与该设备 IP 匹配。
+//   4) 同一轮任务中，只会返回一次 true（通过 TaskIssued 标记）。
+func ShouldAssignScanTask(ip string) bool {
+	if !IsElectedScanner(ip) {
+		return false
+	}
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	if !activeScanState.Running {
+		return false
+	}
+	if activeScanState.ScannerIP == "" || activeScanState.ScannerIP != ip {
+		return false
+	}
+	if activeScanState.TaskIssued {
+		return false
+	}
+	activeScanState.TaskIssued = true
+	return true
 }
 
 // HasOnlineClients returns true if at least one device is currently online.

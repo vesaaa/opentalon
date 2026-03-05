@@ -908,6 +908,12 @@
             <p style="font-size:.72rem;margin-top:4px">请在终端执行 <code
                 style="color:var(--accent)">opentalon agent --join &lt;server-ip&gt;</code></p>
           </div>
+          <!-- 手动重置视图按钮：当拓扑跑到屏幕外或不居中时，点击即可重新居中缩放 -->
+          <button class="topo-reset-btn" type="button" @click="resetView"
+                  title="重新居中并缩放以适配所有设备">
+            <span style="font-size:12px;">↺</span>
+            <span>重置视图</span>
+          </button>
         </div>
       </main>
 
@@ -1118,6 +1124,9 @@
         const theme = ref('light');
         const saving = ref(false);
         let g6Graph = null;
+        // 当用户主动拖动画布 / 缩放后，视图进入“锁定”状态，不再每次自动居中，
+        // 避免拓扑在用户手动调整后仍然频繁跳动。
+        let userViewLocked = false;
         let gaugeCharts = {};
         let pollTimer = null;
 
@@ -1717,8 +1726,9 @@
               width: container.clientWidth,
               height: container.clientHeight,
               fitView: true,
-              fitViewPadding: [50, 50, 50, 50],
-              minZoom: 0.5,
+              fitViewPadding: [60, 60, 60, 60],
+              // 允许更大的缩放范围，避免在设备较多时有节点跑出视口之外。
+              minZoom: 0.1,
               maxZoom: 2,
               modes: {
                 default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'brush-select']
@@ -1739,6 +1749,14 @@
                 style: { radius: 10, stroke: '#30363d', lineWidth: 1.5 }
               },
               nodeStateStyles: {}
+            });
+
+            // 只要用户主动拖动画布或缩放视图，就认为视图已“锁定”，不再自动居中。
+            g6Graph.on('canvas:dragend', () => {
+              userViewLocked = true;
+            });
+            g6Graph.on('wheelzoom', () => {
+              userViewLocked = true;
             });
 
             // 点击节点高亮 & 打开右侧抽屉
@@ -1831,10 +1849,10 @@
                 g6Graph.updateItem(n, { x: pos.x, y: pos.y });
               }
             });
-            // 当节点数量发生变化（例如新设备纳管后加入拓扑）时，自动做一次 fitView，
-            // 避免大量节点只往右侧扩展导致跑出视口之外。
-            if (nodes.length !== oldNodeCount) {
-              g6Graph.fitView();
+            // 只要用户还没有主动拖动画布 / 缩放，就始终自动居中并适配所有节点，
+            // 确保新加入的一批设备不会跑到视口之外。
+            if (!userViewLocked) {
+              g6Graph.fitView(60);
             }
           }
 
@@ -1865,6 +1883,12 @@
 
         function setTheme(mode) {
           theme.value = mode === 'dark' ? 'dark' : 'light';
+        }
+
+        function resetView() {
+          if (!g6Graph) return;
+          // 使用与初始渲染相近的 padding 自动居中并适配所有节点。
+          g6Graph.fitView(60);
         }
 
         async function saveDevice() {
@@ -2017,7 +2041,8 @@
           isScanning, currentScannerIP, scanJustDone,
           toggleScan, triggerScan, adoptDevices, toggleDiscSelect,
           showJoinInput, toggleJoinInput,
-          isDiscoveredNode, probeDevice, probeResult, probing, probeError
+          isDiscoveredNode, probeDevice, probeResult, probing, probeError,
+          resetView
         };
       }
     }).mount('#app');

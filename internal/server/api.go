@@ -226,12 +226,11 @@ func handleMetricsIngest(c *gin.Context) {
 
 	ElectScanners()
 
-	scanTask := IsElectedScanner(payload.IP)
-	if scanTask {
-		// Notify scan state so the UI can show the animation.
-		// Auto-timeout in 120s in case the agent never reports back.
-		SetScanActive(payload.IP, nil, 120)
-	}
+	// 有扫描资格的设备，在一次“触发扫描”周期内只会拿到一次 scan_task=true：
+	// - /api/scan/trigger 会调用 SetScanActive 初始化一轮新的扫描任务（Running=true, TaskIssued=false）；
+	// - 之后在 metrics 上报路径中，只有第一次命中 ShouldAssignScanTask 的设备会收到 true，
+	//   并将 TaskIssued 置为 true，避免重复触发 runScan。
+	scanTask := ShouldAssignScanTask(payload.IP)
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":        true,
