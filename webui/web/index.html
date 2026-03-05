@@ -1281,7 +1281,16 @@
               }
             });
             if (parentId != null) {
-              edges.push({ source: String(parentId), target: String(dev.id) });
+              // 显式指定锚点：
+              // - 父节点使用底部锚点 index=1（[0.5, 1]）
+              // - 子节点使用顶部锚点 index=0（[0.5, 0]）
+              // 这样所有父子连线都会从同一个上下位置连出，不会“有的从侧面、有的从顶部”。
+              edges.push({
+                source: String(parentId),
+                target: String(dev.id),
+                sourceAnchor: 1,
+                targetAnchor: 0,
+              });
             }
             if (dev.children?.length) buildG6Data(dev.children, dev.id, nodes, edges);
           });
@@ -1424,13 +1433,17 @@
               }
             },
             getAnchorPoints() {
-              return [[0.5, 0], [0.5, 1], [0, 0.5], [1, 0.5]];
+              // 仅保留上下两个锚点：
+              // - 父节点连到子节点：使用子节点顶部锚点 [0.5, 0]
+              // - 子节点指向父节点：使用父节点底部锚点 [0.5, 1]
+              // 关闭左右锚点，避免一条边从侧面连出，保证连线更加垂直、清晰。
+              return [[0.5, 0], [0.5, 1]];
             },
             update: undefined
           }, 'single-node');
         }
 
-        // 自定义边：在父子连线上添加“飞行标记”效果的小光点
+        // 自定义边：在父子连线上添加“飞行标记”效果的小光点，基于 cubic-vertical 实现。
         function registerOtEdge() {
           if (G6.Global.customEdges && G6.Global.customEdges['ot-flow-edge']) return;
           G6.registerEdge('ot-flow-edge', {
@@ -1451,7 +1464,7 @@
                 draggable: false,
               });
 
-              // 沿着边路径循环移动的小点（从子节点流向父节点）
+              // 沿着边路径循环移动的小点（从子节点流向父节点），提升“流向”感。
               marker.animate(
                 (ratio) => {
                   const point = keyShape.getPoint(1 - ratio);
@@ -1468,7 +1481,7 @@
                 }
               );
             },
-          }, 'polyline');
+          }, 'cubic-vertical');
         }
 
         // 控制平面认证与 API 封装（使用 JWT）
@@ -1737,16 +1750,18 @@
               layout: {
                 type: 'dagre',
                 rankdir: 'TB',
-                nodesep: 40,
-                ranksep: 60
+                nodesep: 36,
+                // 放大层级之间的纵向间距，让拓扑在上下方向占据更多空间。
+                ranksep: 110
               },
               defaultNode: {
                 type: 'ot-device-node',
                 size: 40
               },
               defaultEdge: {
+                // 以 cubic-vertical 为基础的 ot-flow-edge，带“飞行”特效的小光点。
                 type: 'ot-flow-edge',
-                style: { radius: 10, stroke: '#30363d', lineWidth: 1.5 }
+                style: { stroke: '#30363d', lineWidth: 1.5 }
               },
               nodeStateStyles: {}
             });
