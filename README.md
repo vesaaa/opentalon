@@ -1,7 +1,7 @@
 # OpenTalon (利爪) —— 你的全栖网络与存储管控中枢
 
 <p align="center">
-  <img src="webui/web/logo-opentalon.png" alt="OpenTalon 利爪 Logo" width="260" />
+  <img src="webui/web/logo-opentalon-light.png" alt="OpenTalon 利爪 Logo" width="260" />
 </p>
 
 > **单体极简部署，网关自动推导拓扑连线** — 开源跨平台设备管理与拓扑监控平台

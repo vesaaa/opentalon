@@ -53,8 +53,8 @@ func RegisterStaticFiles(r *gin.Engine) {
 		c.DataFromReader(http.StatusOK, stat.Size(), "image/png", f, nil)
 	})
 
-	r.GET("/logo-opentalon-nav.png", func(c *gin.Context) {
-		f, err := staticFS.Open("logo-opentalon-nav.png")
+	r.GET("/logo-opentalon-light.png", func(c *gin.Context) {
+		f, err := staticFS.Open("logo-opentalon-light.png")
 		if err != nil {
 			c.Status(http.StatusNotFound)
 			return

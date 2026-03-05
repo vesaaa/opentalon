@@ -90,26 +90,19 @@
     .logo {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 1.05rem;
-      font-weight: 700;
-      letter-spacing: .04em;
-      color: #111827; /* 深色文字，适配白底条 */
-      padding: 6px 16px;
-      border-radius: 8px;
-      background: #f9fafb; /* 近似白色的 Logo 条，类似 Nginx/Prometheus 顶栏风格 */
-      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.06);
-    }
-
-    .logo span {
-      color: #111827;
     }
 
     .logo img {
-      height: 48px;
+      height: 50px;
       width: auto;
       display: block;
     }
+
+    /* 亮色主题显示深字版，暗色主题显示白字版 */
+    [data-theme="light"]  .logo .logo-dark  { display: none; }
+    [data-theme="light"]  .logo .logo-light { display: block; }
+    [data-theme="dark"]   .logo .logo-dark  { display: block; }
+    [data-theme="dark"]   .logo .logo-light { display: none; }
 
     .status-pill {
       margin-left: auto;
@@ -615,26 +608,8 @@
     <!-- 顶部 Header -->
     <header>
       <div class="logo">
-        <!-- 内联 SVG Logo，背景天然透明 -->
-        <svg width="96" height="48" viewBox="0 0 96 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-          <defs>
-            <linearGradient id="ot-claw-left" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#22d3ee"/>
-              <stop offset="100%" stop-color="#0ea5e9"/>
-            </linearGradient>
-            <linearGradient id="ot-claw-right" x1="1" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#e879f9"/>
-              <stop offset="100%" stop-color="#fb7185"/>
-            </linearGradient>
-          </defs>
-          <!-- 左侧青色利爪 -->
-          <path d="M10 44 C 18 28, 24 16, 30 4 C 20 10, 13 20, 8 32 C 6 36, 6 40, 10 44 Z"
-                fill="url(#ot-claw-left)"/>
-          <!-- 右侧粉色利爪 -->
-          <path d="M32 44 C 40 30, 52 18, 68 4 C 56 10, 46 20, 38 32 C 34 38, 32 42, 32 44 Z"
-                fill="url(#ot-claw-right)"/>
-        </svg>
-        <span>OpenTalon · 利爪</span>
+        <img class="logo-dark"  src="/logo-opentalon.png"       alt="OpenTalon 利爪" />
+        <img class="logo-light" src="/logo-opentalon-light.png" alt="OpenTalon 利爪" />
       </div>
       <span style="color:var(--muted);font-size:.8rem;">利爪 · 局域网拓扑与性能监控</span>
       <div class="status-pill">{{ onlineCount }} 台在线设备</div>
