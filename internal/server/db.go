@@ -288,12 +288,14 @@ func GetDeviceTree() ([]*models.DeviceTree, error) {
 			Remark:      d.Remark,
 			IP:          d.IP,
 			OS:          d.OS,
+			MAC:         d.MAC,
 			GatewayIP:   d.GatewayIP,
 			NetworkMode: d.NetworkMode,
 			Group:       d.Group,
 			IsOnline:    online,
 			Status:      status,
 			LastSeen:    d.LastSeen,
+			AgentVer:    d.AgentVer,
 			ParentID:    d.ParentID,
 		}
 
@@ -455,6 +457,11 @@ func UpsertDiscovered(ip, mac, hostname, vendor, osHint, scannerIP string) {
 	now := time.Now()
 	var d models.DiscoveredDevice
 	if err := DB.Where("ip = ?", ip).First(&d).Error; err == gorm.ErrRecordNotFound {
+		// 如果扫描阶段没有反向解析到主机名，但已经识别出厂商，则使用厂商名作为默认“设备名”，
+		// 这样在“已发现设备”和后续纳管后的节点上都有一个比 IP 更友好的名称。
+		if hostname == "" && vendor != "" {
+			hostname = vendor
+		}
 		d = models.DiscoveredDevice{
 			IP:        ip,
 			MAC:       mac,
@@ -467,6 +474,10 @@ func UpsertDiscovered(ip, mac, hostname, vendor, osHint, scannerIP string) {
 		}
 		DB.Create(&d)
 	} else if err == nil {
+		if hostname == "" && vendor != "" && d.Hostname == "" {
+			// 仅在历史记录也没有主机名时，回填厂商名为 Hostname，避免覆盖用户手工改过的名字。
+			hostname = vendor
+		}
 		DB.Model(&d).Updates(map[string]any{
 			"mac":        mac,
 			"hostname":   hostname,
@@ -502,13 +513,23 @@ func AdoptDiscoveredDevices(ids []uint, group string, parentID *uint) error {
 			ParentID:    parentID,
 		}
 		if reg.Hostname == "" {
-			reg.Hostname = d.IP
+			// 首选用 OUI 推断出的厂商名作为默认名称，其次退回到 IP。
+			if d.Vendor != "" {
+				reg.Hostname = d.Vendor
+			} else {
+				reg.Hostname = d.IP
+			}
 		}
 		if reg.Group == "" {
 			reg.Group = "discovered"
 		}
-		if _, err := UpsertDevice(reg); err != nil {
+		dev, err := UpsertDevice(reg)
+		if err != nil {
 			return fmt.Errorf("adopting %s: %w", d.IP, err)
+		}
+		// 把扫描阶段得到的 MAC 地址写入正式设备记录，方便后续在抽屉中展示和做细颗粒度识别。
+		if d.MAC != "" {
+			DB.Model(dev).Update("mac", d.MAC)
 		}
 		// Remove from discovered list now that it's managed.
 		DB.Unscoped().Delete(&models.DiscoveredDevice{}, d.ID)
@@ -620,4 +641,72 @@ func GetAnyElectedScannerIP() string {
 		return false // stop after first
 	})
 	return ip
+}
+
+// ── On-demand port probe ───────────────────────────────────────────────────────
+
+// DeviceProbeResult describes the result of a lightweight TCP port probe.
+// It is used by the Web UI 抽屉里的“手动探测”按钮，为尚未安装 Agent 的设备
+// 提供一个粗粒度的 OS / 角色判断。
+type DeviceProbeResult struct {
+	IP        string `json:"ip"`
+	MAC       string `json:"mac"`
+	Open22    bool   `json:"open_22"`    // 22/tcp 通常代表 SSH（Linux/Unix）
+	Open3389  bool   `json:"open_3389"`  // 3389/tcp 通常代表 RDP（Windows）
+	OSHint    string `json:"os_hint"`    // 例如 "Linux (port 22 open)" / "Windows (port 3389 open)"
+	FromAgent bool   `json:"from_agent"` // true 表示当前 OS 字段来源于 Agent，而非端口指纹
+}
+
+// ProbeDeviceByID runs a short TCP port probe against a device's IP.
+// 规则：
+//   - 仅在 AgentVer 为空或为 "discovered" 时，才会根据结果回写 Device.OS；
+//   - 如果后续安装了 Agent，则 Agent 上报的 OS 会覆盖这里的探测结果。
+func ProbeDeviceByID(id uint) (*DeviceProbeResult, error) {
+	var dev models.Device
+	if err := DB.First(&dev, id).Error; err != nil {
+		return nil, err
+	}
+	if dev.IP == "" {
+		return nil, fmt.Errorf("device has empty IP")
+	}
+
+	timeout := 700 * time.Millisecond
+	open22 := isPortOpen(dev.IP, 22, timeout)
+	open3389 := isPortOpen(dev.IP, 3389, timeout)
+
+	osHint := dev.OS
+	fromAgent := dev.AgentVer != "" && dev.AgentVer != "discovered"
+
+	// 仅在尚未安装 Agent 时，根据端口开放情况推导一个粗粒度 OS。
+	if !fromAgent {
+		switch {
+		case open3389:
+			osHint = "Windows (port 3389 open)"
+		case open22:
+			osHint = "Linux (port 22 open)"
+		}
+		if osHint != dev.OS {
+			DB.Model(&dev).Update("os", osHint)
+		}
+	}
+
+	return &DeviceProbeResult{
+		IP:        dev.IP,
+		MAC:       dev.MAC,
+		Open22:    open22,
+		Open3389:  open3389,
+		OSHint:    osHint,
+		FromAgent: fromAgent,
+	}, nil
+}
+
+// isPortOpen 尝试在给定超时时间内建立 TCP 连接，返回是否成功建立连接。
+func isPortOpen(ip string, port int, timeout time.Duration) bool {
+	addr := fmt.Sprintf("%s:%d", ip, port)
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }

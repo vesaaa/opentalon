@@ -217,6 +217,37 @@
       color: var(--muted);
       border-bottom: 1px solid var(--border);
     }
+    .sidebar-head-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .add-device-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background .15s, color .15s, border-color .15s, transform .1s;
+    }
+    .add-device-btn:hover {
+      background: rgba(88,166,255,.08);
+      color: var(--accent);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .add-device-btn:active {
+      transform: translateY(0);
+      background: rgba(88,166,255,.15);
+    }
 
     .device-list {
       flex: 1;
@@ -624,10 +655,10 @@
 
     /* Join bar */
     .join-bar {
-      padding: 10px 14px;
-      border-top: 1px solid var(--border);
+      padding: 8px 12px 10px;
+      border-bottom: 1px solid var(--border);
       display: flex;
-      gap: 8px;
+      gap: 6px;
     }
 
     .join-input {
@@ -635,9 +666,9 @@
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 7px 10px;
+      padding: 6px 8px;
       color: var(--text);
-      font-size: .8rem;
+      font-size: .78rem;
       outline: none;
     }
 
@@ -646,18 +677,19 @@
     }
 
     .join-btn {
-      padding: 7px 14px;
+      padding: 6px 10px;
       background: var(--accent);
       color: #000;
       border: none;
       border-radius: 6px;
-      font-size: .8rem;
+      font-size: .78rem;
       font-weight: 600;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .join-btn:hover {
-      opacity: .85;
+      opacity: .9;
     }
 
     /* Login Overlay */
@@ -790,7 +822,16 @@
     <div class="workspace" style="position:relative;">
       <!-- 左侧设备列表 -->
       <aside>
-        <div class="sidebar-head">设备列表</div>
+        <div class="sidebar-head sidebar-head-main">
+          <span>设备列表</span>
+          <button class="add-device-btn" @click="toggleJoinInput" title="通过服务器 IP 加入新的 Agent">
+            +
+          </button>
+        </div>
+        <div class="join-bar" v-if="showJoinInput">
+          <input class="join-input" id="join-addr" v-model="joinAddr" placeholder="请输入要加入的服务器 IP" @keyup.enter="joinDevice">
+          <button class="join-btn" @click="joinDevice">加入</button>
+        </div>
         <div class="device-list">
           <template v-for="group in groupedDevices" :key="group.name">
             <div class="group-label">{{ group.name || '未分组' }}</div>
@@ -814,11 +855,6 @@
           <div v-if="!allDevices.length" style="padding:20px 14px;color:var(--muted);font-size:.8rem;">
             暂无设备，请先在终端运行 Agent 加入。
           </div>
-        </div>
-        <!-- Join bar -->
-        <div class="join-bar">
-          <input class="join-input" id="join-addr" v-model="joinAddr" placeholder="请输入要加入的服务器 IP" @keyup.enter="joinDevice">
-          <button class="join-btn" @click="joinDevice">加入</button>
         </div>
 
         <!-- 已发现设备 -->
@@ -881,7 +917,66 @@
           <h3>{{ selected ? (selected.remark || selected.hostname) : '未选择设备' }}</h3>
           <button class="close-btn" id="close-drawer" @click="drawerOpen=false">×</button>
         </div>
-        <div class="drawer-body" v-if="selected">
+        <!-- 仅通过扫描纳管、尚未安装 Agent 的设备：走简化视图 + 手动探测 -->
+        <div class="drawer-body" v-if="selected && isDiscoveredNode">
+          <div>
+            <div class="drawer-section-title">基础信息（扫描纳管）</div>
+            <div class="drawer-form-row">
+              <label style="font-size:.75rem;color:var(--muted);">设备名 / 厂商（来自 ARP / OUI）</label>
+              <div class="drawer-input" style="border-style:dashed;cursor:default;">
+                {{ selected.hostname || selected.ip }}
+              </div>
+            </div>
+            <div class="drawer-form-row">
+              <label style="font-size:.75rem;color:var(--muted);">备注</label>
+              <input class="drawer-input" v-model="editForm.remark" placeholder="例如：路由器、NAS、摄像头等">
+            </div>
+            <div class="drawer-form-row">
+              <label style="font-size:.75rem;color:var(--muted);">分组</label>
+              <input class="drawer-input" v-model="editForm.group" placeholder="例如：办公网络、实验室等">
+            </div>
+            <div class="drawer-actions">
+              <div>
+                <button class="btn-primary" :disabled="saving" @click="saveDevice">保存</button>
+              </div>
+              <button class="btn-danger" @click="deleteDevice">删除设备</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="drawer-section-title">网络 & 识别</div>
+            <div class="stat-card">
+              <div class="stat-label">基础信息</div>
+              <div style="font-size:.82rem;margin-top:4px;">
+                <div>IP：{{ selected.ip }}</div>
+                <div v-if="selected.mac">MAC：{{ selected.mac }}</div>
+                <div>OS 推测：{{ selected.os || (probeResult?.os_hint || '未知') }}</div>
+              </div>
+              <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+                <button class="btn-primary" :disabled="probing" @click="probeDevice">
+                  {{ probing ? '正在探测端口…' : '探测 22 / 3389 端口' }}
+                </button>
+                <span v-if="probeResult" style="font-size:.72rem;color:var(--muted);">
+                  22/SSH：<b :style="{color: probeResult.open_22 ? '#3fb950' : '#8b949e'}">
+                    {{ probeResult.open_22 ? '开放' : '关闭' }}
+                  </b>，
+                  3389/RDP：<b :style="{color: probeResult.open_3389 ? '#3fb950' : '#8b949e'}">
+                    {{ probeResult.open_3389 ? '开放' : '关闭' }}
+                  </b>
+                </span>
+              </div>
+              <div v-if="probeError" style="margin-top:6px;font-size:.72rem;color:var(--danger);">
+                探测失败：{{ probeError }}
+              </div>
+              <div v-if="probeResult?.from_agent" style="margin-top:6px;font-size:.72rem;color:var(--muted);">
+                当前 OS 信息已由 Agent 上报，端口探测不会覆盖 Agent 结果。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 已安装 Agent 的设备：展示完整性能指标视图 -->
+        <div class="drawer-body" v-else-if="selected">
           <!-- Editable basics -->
           <div>
             <div class="drawer-section-title">基础信息</div>
@@ -910,6 +1005,7 @@
           <!-- Meta chips -->
           <div>
             <span class="meta-chip">{{ selected.ip }}</span>
+            <span class="meta-chip" v-if="selected.mac">MAC {{ selected.mac }}</span>
             <span class="meta-chip" :title="selected.os">{{ selected.os || 'Linux' }}</span>
             <span class="meta-chip">{{ selected.network_mode }}</span>
             <span class="meta-chip">{{ selected.group }}</span>
@@ -1014,6 +1110,7 @@
         const metrics = ref(null);
         const drawerOpen = ref(false);
         const joinAddr = ref('');
+        const showJoinInput = ref(false);
         // 备注和分组可在 Web 界面编辑；主机名由 Agent 上报
         const editForm = ref({ remark: '', group: '' });
         // 主题（light | dark）
@@ -1030,9 +1127,15 @@
         const discGroup = ref('');
         const discParentId = ref(null);
 
+        // 端口探测状态（主要用于“扫描纳管但未装 Agent”场景）
+        const probeResult = ref(null);
+        const probing = ref(false);
+        const probeError = ref('');
+
         // 将树结构拍平成一维数组，便于统计与列表展示
         const allDevices = computed(() => flattenTree(tree.value));
         const onlineCount = computed(() => allDevices.value.filter(d => d.is_online).length);
+        const isDiscoveredNode = computed(() => selected.value && selected.value.agent_ver === 'discovered');
         // 按分组聚合设备，用于左侧分组列表
         const groupedDevices = computed(() => {
           const map = {};
@@ -1493,6 +1596,27 @@
           return (b / 1048576).toFixed(2) + ' MB/s';
         }
 
+        // 手动端口探测：仅对当前选中设备执行 22 / 3389 探测，并在未安装 Agent 时给出 OS 粗略判断。
+        async function probeDevice() {
+          if (!selected.value || !token.value) {
+            if (!token.value) showLogin.value = true;
+            return;
+          }
+          try {
+            probing.value = true;
+            probeError.value = '';
+            const res = await apiFetch(`/api/devices/${selected.value.id}/probe`, { method: 'POST' });
+            const data = await res.json();
+            probeResult.value = data.data || null;
+            // 如果后端基于探测结果更新了 OS 字段，刷新一次设备树以同步最新 OS / 图标。
+            await fetchTree();
+          } catch (e) {
+            probeError.value = e.message || '未知错误';
+          } finally {
+            probing.value = false;
+          }
+        }
+
         function parseIPs(str) {
           if (!str) return [];
           return String(str).split(',').map(s => s.trim()).filter(Boolean);
@@ -1515,17 +1639,28 @@
           ];
         }
 
-        // 选中设备时，打开右侧抽屉并拉取指标
+        // 选中设备时，打开右侧抽屉并拉取指标 / 重置探测状态
         function selectDevice(dev) {
           selected.value = dev;
           drawerOpen.value = true;
           metrics.value = null;
+          probeResult.value = null;
+          probeError.value = '';
           editForm.value.remark = dev.remark || '';
           editForm.value.group = dev.group || '';
-          fetchMetrics(dev.id);
-          if (pollTimer) clearInterval(pollTimer);
-          pollTimer = setInterval(() => fetchMetrics(dev.id), 5000);
-          nextTick(initGauges);
+
+          // 已安装 Agent 的节点定期拉取 metrics；仅扫描纳管的节点不需要。
+          if (dev.agent_ver && dev.agent_ver !== 'discovered') {
+            fetchMetrics(dev.id);
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(() => fetchMetrics(dev.id), 5000);
+            nextTick(initGauges);
+          } else {
+            if (pollTimer) {
+              clearInterval(pollTimer);
+              pollTimer = null;
+            }
+          }
 
           // Highlight in G6
           if (!g6Graph) return;
@@ -1534,11 +1669,20 @@
           if (node) g6Graph.setItemState(node, 'selected', true);
         }
 
+        function toggleJoinInput() {
+          showJoinInput.value = !showJoinInput.value;
+          if (showJoinInput.value) {
+            // 打开面板时清空上次输入
+            joinAddr.value = '';
+          }
+        }
+
         async function joinDevice() {
           if (!joinAddr.value.trim()) return;
           const host = joinAddr.value.trim();
           alert(`请通过 SSH 登录到 ${host} 手动安装 Agent（该功能暂未自动化）`);
           joinAddr.value = '';
+          showJoinInput.value = false;
         }
 
         // 渲染拓扑图（基于 AntV G6）
@@ -1675,6 +1819,7 @@
               if (!m || m.id == null) return;
               oldPositions[String(m.id)] = { x: m.x, y: m.y };
             });
+            const oldNodeCount = Object.keys(oldPositions).length;
 
             g6Graph.changeData({ nodes, edges });
 
@@ -1685,7 +1830,11 @@
                 g6Graph.updateItem(n, { x: pos.x, y: pos.y });
               }
             });
-            // 不再在每次轮询时自动 fitView，避免打乱用户手动布局
+            // 当节点数量发生变化（例如新设备纳管后加入拓扑）时，自动做一次 fitView，
+            // 避免大量节点只往右侧扩展导致跑出视口之外。
+            if (nodes.length !== oldNodeCount) {
+              g6Graph.fitView();
+            }
           }
 
           // Sync selection
@@ -1865,7 +2014,9 @@
           theme, setTheme, parseIPs,
           discovered, discOpen, discSelected, discGroup, discParentId,
           isScanning, currentScannerIP, scanJustDone,
-          toggleScan, triggerScan, adoptDevices, toggleDiscSelect
+          toggleScan, triggerScan, adoptDevices, toggleDiscSelect,
+          showJoinInput, toggleJoinInput,
+          isDiscoveredNode, probeDevice, probeResult, probing, probeError
         };
       }
     }).mount('#app');

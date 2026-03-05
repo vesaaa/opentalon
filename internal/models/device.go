@@ -29,6 +29,9 @@ type Device struct {
 	Remark   string `gorm:"index" json:"remark"`
 	IP       string `gorm:"uniqueIndex;not null" json:"ip"`
 	OS       string `json:"os"`
+	// MAC is the layer-2 address if known. It is primarily populated for devices
+	// that were first discovered via ARP scan and later adopted into management.
+	MAC string `json:"mac"`
 
 	// Topology
 	// ParentID: nil = root node (e.g. main router); otherwise points to parent Device.ID
@@ -70,6 +73,7 @@ type DeviceTree struct {
 	Remark      string        `json:"remark"`
 	IP          string        `json:"ip"`
 	OS          string        `json:"os"`
+	MAC         string        `json:"mac"`
 	GatewayIP   string        `json:"gateway_ip"`
 	NetworkMode NetworkMode   `json:"network_mode"`
 	Group       string        `json:"group"`
@@ -80,6 +84,9 @@ type DeviceTree struct {
 	//   - "unknown" : 尚无任何 metrics 记录（只注册过设备）
 	Status   string        `json:"status"`
 	LastSeen time.Time     `json:"last_seen"`
+	// AgentVer 标记该节点是否已经安装 Agent（非空）以及 Agent 版本。
+	// 当值为 "discovered" 时，表示该节点是通过 ARP 扫描纳管的、尚未安装 Agent。
+	AgentVer string        `json:"agent_ver"`
 	ParentID *uint         `json:"parent_id,omitempty"`
 	Children []*DeviceTree `json:"children,omitempty"`
 }

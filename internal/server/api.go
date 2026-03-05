@@ -38,6 +38,7 @@ func RegisterControlRoutes(r *gin.Engine) {
 	{
 		auth.GET("/devices/tree", handleDeviceTree)
 		auth.GET("/devices/:id/metrics", handleDeviceMetrics)
+		auth.POST("/devices/:id/probe", handleDeviceProbe)
 		auth.DELETE("/devices/:id", handleDeviceDelete)
 		auth.PATCH("/devices/:id", handleDeviceUpdate)
 
@@ -343,4 +344,21 @@ func handleDeviceMetrics(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": m})
+}
+
+// handleDeviceProbe runs a lightweight TCP port probe (22 / 3389) against the
+// given device IP, returning open ports and a coarse OS hint. It is intended
+// to be triggered manually from the Web UI 抽屉，用于尚未安装 Agent 的节点。
+func handleDeviceProbe(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	res, err := ProbeDeviceByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": res})
 }
