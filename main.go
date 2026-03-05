@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vesaa/opentalon/internal/agent"
 	"github.com/vesaa/opentalon/internal/config"
+	"github.com/vesaa/opentalon/internal/scanner"
 	"github.com/vesaa/opentalon/internal/server"
 )
 
@@ -54,6 +56,11 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 				return fmt.Errorf("loading config: %w", err)
 			}
 
+			// CLI flag --discovery=false overrides config.
+			if disco, _ := cmd.Flags().GetBool("discovery"); !disco {
+				cfg.DiscoveryEnabled = false
+			}
+
 			if err := server.InitDB(cfg); err != nil {
 				return fmt.Errorf("initializing database: %w", err)
 			}
@@ -62,6 +69,7 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 			server.SetJWTSecret(cfg.JWTSecret)
 			server.SetAgentToken(cfg.AgentToken)
 			server.SetAdminCredentials(cfg.AdminUser, cfg.AdminPass)
+			server.SetDiscoveryEnabled(cfg.DiscoveryEnabled)
 
 			gin.SetMode(gin.ReleaseMode)
 			corsMiddleware := func(c *gin.Context) {
@@ -101,6 +109,30 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 			errCh := make(chan error, 2)
 			go func() { errCh <- ctrlSrv.ListenAndServe() }()
 			go func() { errCh <- dataSrv.ListenAndServe() }()
+
+			// Server-side ARP scanner: runs on startup and whenever triggered via /api/scan/trigger.
+			if cfg.DiscoveryEnabled {
+				go func() {
+					// Initial scan after a short warm-up delay.
+					time.Sleep(5 * time.Second)
+					runServerScan()
+					// Periodic scan every 5 minutes + on-demand trigger check.
+					tick := time.NewTicker(5 * time.Minute)
+					checkTick := time.NewTicker(2 * time.Second)
+					defer tick.Stop()
+					defer checkTick.Stop()
+					for {
+						select {
+						case <-tick.C:
+							runServerScan()
+						case <-checkTick.C:
+							if server.TakeServerScan() {
+								runServerScan()
+							}
+						}
+					}
+				}()
+			}
 
 			quit := make(chan os.Signal, 1)
 			signal.Notify(quit, os.Interrupt) // os.Interrupt = SIGINT; works on all platforms
@@ -163,6 +195,8 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 	agentCmd.Flags().Uint("parent", 0, "Parent device ID (for PVE VM topology declaration)")
 	agentCmd.Flags().Bool("debug-http", false, "Enable verbose HTTP logging for agent (requests & responses)")
 
+	serverCmd.Flags().Bool("discovery", true, "Enable LAN ARP device discovery (default: true)")
+
 	// ── version subcommand ────────────────────────────────────────────────────
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -190,4 +224,49 @@ func containsPort(addr string) bool {
 		}
 	}
 	return false
+}
+
+// runServerScan performs an ARP scan of all local subnets from the server's
+// perspective and stores results in the DiscoveredDevices table.
+func runServerScan() {
+	// Only scan when there are no online clients; otherwise the elected agent scans.
+	if server.HasOnlineClients() {
+		// Clients came online between trigger and now — clear the placeholder state.
+		server.SetScanDone()
+		return
+	}
+	serverIP := localServerIP()
+	// Overwrite placeholder "server" state with real IP; auto-timeout 120s safety net.
+	server.SetScanActive(serverIP, nil, 120)
+
+	results, err := scanner.ScanLocalSubnets("")
+	if err != nil {
+		server.SetScanDoneWithCount(0)
+		return
+	}
+	var managedIPs []string
+	server.DB.Model(nil).Table("devices").Where("deleted_at IS NULL").Pluck("ip", &managedIPs)
+	managed := make(map[string]struct{}, len(managedIPs))
+	for _, ip := range managedIPs {
+		managed[ip] = struct{}{}
+	}
+	count := 0
+	for _, d := range results {
+		if _, ok := managed[d.IP]; ok {
+			continue
+		}
+		server.UpsertDiscovered(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, serverIP)
+		count++
+	}
+	server.SetScanDoneWithCount(count)
+}
+
+// localServerIP returns the primary local private IP of the server process.
+func localServerIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "server"
+	}
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP.String()
 }

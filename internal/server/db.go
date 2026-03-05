@@ -6,6 +6,8 @@ package server
 import (
 	"fmt"
 	"log"
+	"math/rand"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -21,9 +23,18 @@ import (
 var DB *gorm.DB
 var topoMu sync.Mutex
 
-// latestMetrics caches the most recent metrics per device in memory so that
-// control-plane API 可以在 SQLite 出现异常或延迟时仍然返回最近一次上报的数据。
+// latestMetrics caches the most recent metrics per device in memory.
 var latestMetrics sync.Map // map[uint]*models.Metrics
+
+// electedScanners maps subnet CIDR (e.g. "192.168.1.0/24") → elected device IP.
+// The elected device receives scan_task=true in the next metrics response.
+var electedScanners sync.Map // map[string]string  subnet→ip
+
+// discoveryEnabled controls whether ARP scanning is active (set from Config at startup).
+var discoveryEnabled = true
+
+// SetDiscoveryEnabled propagates the config flag into the db package.
+func SetDiscoveryEnabled(v bool) { discoveryEnabled = v }
 
 // heartbeatTimeout defines how long a device can stay silent before being
 // considered offline. 此处使用较短的 30s，方便本地/小规模环境快速感知离线状态。
@@ -56,7 +67,7 @@ func InitDB(cfg *config.Config) error {
 		return fmt.Errorf("opening database: %w", err)
 	}
 
-	if err := db.AutoMigrate(&models.Device{}, &models.Metrics{}); err != nil {
+	if err := db.AutoMigrate(&models.Device{}, &models.Metrics{}, &models.DiscoveredDevice{}); err != nil {
 		return fmt.Errorf("auto-migrate: %w", err)
 	}
 
@@ -347,4 +358,266 @@ type RegisterPayload struct {
 	AgentVer    string             `json:"agent_ver"`
 	LANIPs      []string           `json:"lan_ips,omitempty"`
 	WANIPs      []string           `json:"wan_ips,omitempty"`
+}
+
+// ─── Scanner election ─────────────────────────────────────────────────────────
+
+// ElectScanners recalculates which device should perform ARP scans for each
+// local subnet, and stores results in electedScanners.
+//
+// Election rules:
+//  1. Only root nodes (ParentID=nil) are candidates.
+//  2. Per subnet (grouped by GatewayIP), if one root → it wins.
+//  3. Multiple roots in same subnet → the one with highest MemTotal wins.
+//  4. MemTotal tie or unknown → random selection.
+func ElectScanners() {
+	if !discoveryEnabled {
+		return
+	}
+	var devices []models.Device
+	if err := DB.Where("is_online = ? AND parent_id IS NULL", true).Find(&devices).Error; err != nil {
+		return
+	}
+
+	// Group root devices by subnet (using /24 approximation from GatewayIP).
+	type candidate struct {
+		ip       string
+		memTotal uint64
+	}
+	bySubnet := make(map[string][]candidate)
+	for _, d := range devices {
+		subnet := subnetKey(d.IP)
+		if subnet == "" {
+			continue
+		}
+		var memTotal uint64
+		if v, ok := latestMetrics.Load(d.ID); ok {
+			if m, ok2 := v.(*models.Metrics); ok2 {
+				memTotal = m.MemTotal
+			}
+		}
+		bySubnet[subnet] = append(bySubnet[subnet], candidate{ip: d.IP, memTotal: memTotal})
+	}
+
+	for subnet, cands := range bySubnet {
+		if len(cands) == 0 {
+			continue
+		}
+		winner := cands[0]
+		for _, c := range cands[1:] {
+			if c.memTotal > winner.memTotal {
+				winner = c
+			} else if c.memTotal == winner.memTotal {
+				// Tie-break: random to avoid always favouring the first registered device.
+				if rand.Intn(2) == 0 { //nolint:gosec
+					winner = c
+				}
+			}
+		}
+		electedScanners.Store(subnet, winner.ip)
+	}
+}
+
+// IsElectedScanner returns true if the given IP is the elected scanner for its subnet.
+func IsElectedScanner(ip string) bool {
+	if !discoveryEnabled {
+		return false
+	}
+	subnet := subnetKey(ip)
+	if subnet == "" {
+		return false
+	}
+	v, ok := electedScanners.Load(subnet)
+	if !ok {
+		return false
+	}
+	return v.(string) == ip
+}
+
+// subnetKey returns a /24 subnet string for the given IP, e.g. "192.168.1".
+// Used as a grouping key for scanner election.
+func subnetKey(ipStr string) string {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return ""
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d.%d.%d", ip4[0], ip4[1], ip4[2])
+}
+
+// ─── DiscoveredDevice CRUD ────────────────────────────────────────────────────
+
+// UpsertDiscovered inserts or updates a discovered device record.
+func UpsertDiscovered(ip, mac, hostname, vendor, osHint, scannerIP string) {
+	now := time.Now()
+	var d models.DiscoveredDevice
+	if err := DB.Where("ip = ?", ip).First(&d).Error; err == gorm.ErrRecordNotFound {
+		d = models.DiscoveredDevice{
+			IP:        ip,
+			MAC:       mac,
+			Hostname:  hostname,
+			Vendor:    vendor,
+			OSHint:    osHint,
+			ScannerIP: scannerIP,
+			FirstSeen: now,
+			LastSeen:  now,
+		}
+		DB.Create(&d)
+	} else if err == nil {
+		DB.Model(&d).Updates(map[string]any{
+			"mac":        mac,
+			"hostname":   hostname,
+			"vendor":     vendor,
+			"os_hint":    osHint,
+			"scanner_ip": scannerIP,
+			"last_seen":  now,
+		})
+	}
+}
+
+// GetDiscoveredDevices returns all discovered (non-adopted) devices.
+func GetDiscoveredDevices() ([]models.DiscoveredDevice, error) {
+	var list []models.DiscoveredDevice
+	err := DB.Order("last_seen desc").Find(&list).Error
+	return list, err
+}
+
+// AdoptDiscoveredDevices moves selected discovered devices into the managed devices table.
+// group and parentID are optional; supply zero/empty to skip.
+func AdoptDiscoveredDevices(ids []uint, group string, parentID *uint) error {
+	var discovered []models.DiscoveredDevice
+	if err := DB.Where("id IN ?", ids).Find(&discovered).Error; err != nil {
+		return err
+	}
+	for _, d := range discovered {
+		reg := RegisterPayload{
+			Hostname:    d.Hostname,
+			IP:          d.IP,
+			Group:       group,
+			NetworkMode: models.NetworkModeBridged,
+			AgentVer:    "discovered",
+			ParentID:    parentID,
+		}
+		if reg.Hostname == "" {
+			reg.Hostname = d.IP
+		}
+		if reg.Group == "" {
+			reg.Group = "discovered"
+		}
+		if _, err := UpsertDevice(reg); err != nil {
+			return fmt.Errorf("adopting %s: %w", d.IP, err)
+		}
+		// Remove from discovered list now that it's managed.
+		DB.Unscoped().Delete(&models.DiscoveredDevice{}, d.ID)
+	}
+	return nil
+}
+
+// ── Scan state ───────────────────────────────────────────────────────────────
+
+// ScanStateInfo is returned by GetScanState.
+type ScanStateInfo struct {
+	Running    bool      `json:"running"`
+	ScannerIP  string    `json:"scanner_ip"`
+	LastScanAt time.Time `json:"last_scan_at,omitempty"` // zero if never scanned
+	LastFound  int       `json:"last_found"`             // devices found in last scan
+}
+
+var scanMu sync.Mutex
+var activeScanState ScanStateInfo
+var activeScanCancel func()  // non-nil while a server-side goroutine scan is running
+var pendingServerScan = false // flag consumed by main.go background loop
+
+// RequestServerScan queues a server-side ARP scan (main.go background goroutine picks it up).
+func RequestServerScan() {
+	scanMu.Lock()
+	pendingServerScan = true
+	scanMu.Unlock()
+}
+
+// TakeServerScan atomically reads and clears the pending scan flag.
+func TakeServerScan() bool {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	v := pendingServerScan
+	pendingServerScan = false
+	return v
+}
+
+// SetScanActive marks a scan as running. cancelFn may be nil for agent-driven scans.
+// autoStopSec: if > 0, automatically mark done after that many seconds (safety net).
+func SetScanActive(scannerIP string, cancelFn func(), autoStopSec int) {
+	scanMu.Lock()
+	activeScanState = ScanStateInfo{Running: true, ScannerIP: scannerIP}
+	activeScanCancel = cancelFn
+	scanMu.Unlock()
+	if autoStopSec > 0 {
+		time.AfterFunc(time.Duration(autoStopSec)*time.Second, func() {
+			scanMu.Lock()
+			// Only clear if it's still the same scan (same scanner IP).
+			if activeScanState.ScannerIP == scannerIP {
+				activeScanState.Running = false
+				activeScanCancel = nil
+			}
+			scanMu.Unlock()
+		})
+	}
+}
+
+// SetScanDone marks the current scan as finished.
+func SetScanDone() {
+	scanMu.Lock()
+	activeScanState.Running = false
+	activeScanState.LastScanAt = time.Now()
+	activeScanCancel = nil
+	scanMu.Unlock()
+}
+
+// SetScanDoneWithCount marks scan as finished and records how many new devices were found.
+func SetScanDoneWithCount(found int) {
+	scanMu.Lock()
+	activeScanState.Running = false
+	activeScanState.LastScanAt = time.Now()
+	activeScanState.LastFound = found
+	activeScanCancel = nil
+	scanMu.Unlock()
+}
+
+// CancelActiveScan stops the running scan (if cancellable) and marks it done.
+func CancelActiveScan() {
+	scanMu.Lock()
+	fn := activeScanCancel
+	activeScanState.Running = false
+	activeScanCancel = nil
+	scanMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+// GetScanState returns a snapshot of the current scan state.
+func GetScanState() ScanStateInfo {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	return activeScanState
+}
+
+// HasOnlineClients returns true if at least one device is currently online.
+func HasOnlineClients() bool {
+	var count int64
+	DB.Model(&models.Device{}).Where("is_online = ?", true).Count(&count)
+	return count > 0
+}
+
+// GetAnyElectedScannerIP returns one of the currently elected scanner IPs, or "" if none.
+func GetAnyElectedScannerIP() string {
+	var ip string
+	electedScanners.Range(func(_, v interface{}) bool {
+		ip = v.(string)
+		return false // stop after first
+	})
+	return ip
 }

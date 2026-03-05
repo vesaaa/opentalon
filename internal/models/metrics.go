@@ -17,6 +17,7 @@ type Metrics struct {
 	// ── Compute ──────────────────────────────────────────────────────────────
 	CPUUsage  float64 `json:"cpu_usage"`   // percent 0-100
 	MemUsage  float64 `json:"mem_usage"`   // percent 0-100
+	MemTotal  uint64  `json:"mem_total"`   // bytes, total physical RAM
 	DiskUsage float64 `json:"disk_usage"`  // percent 0-100 (largest mount)
 
 	// ── Network bandwidth (bytes per second, computed from delta) ───────────

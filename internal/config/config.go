@@ -49,6 +49,10 @@ type Config struct {
 	// AgentDebugHTTP enables verbose agent HTTP logging (requests & responses).
 	AgentDebugHTTP bool `mapstructure:"agent_debug_http"`
 
+	// DiscoveryEnabled controls LAN ARP scanning. Defaults to true.
+	// Set to false via --discovery=false CLI flag or discovery_enabled: false in config.yaml.
+	DiscoveryEnabled bool `mapstructure:"discovery_enabled"`
+
 	// ── SSH defaults ──────────────────────────────────────────────────────────
 	SSHUser    string `mapstructure:"ssh_user"`
 	SSHKeyPath string `mapstructure:"ssh_key_path"`
@@ -84,6 +88,7 @@ func Load() (*Config, error) {
 	v.SetDefault("agent_network_mode", "Bridged")
 	v.SetDefault("agent_outbound_token", "opentalon-secret-key-123")
 	v.SetDefault("agent_debug_http", false)
+	v.SetDefault("discovery_enabled", true)
 
 	v.SetDefault("ssh_user", "root")
 	v.SetDefault("ssh_key_path", "~/.ssh/id_rsa")

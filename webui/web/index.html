@@ -104,21 +104,72 @@
     [data-theme="dark"]   .logo .logo-dark  { display: block; }
     [data-theme="dark"]   .logo .logo-light { display: none; }
 
-    .status-pill {
+    /* ── Header 右侧区域 ────────────────────────────────────────── */
+    .header-right {
       margin-left: auto;
-      padding: 3px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .online-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
       border-radius: 20px;
       font-size: .72rem;
-      background: rgba(63, 185, 80, .12);
+      background: rgba(63, 185, 80, .10);
       color: var(--accent2);
-      border: 1px solid var(--accent2);
+      border: 1px solid rgba(63, 185, 80, .35);
+      user-select: none;
+    }
+    .online-badge svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+    .scan-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: .72rem;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: color .2s, border-color .2s, background .2s;
+      white-space: nowrap;
+    }
+    .scan-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .scan-btn.scanning {
+      color: var(--accent2);
+      border-color: var(--accent2);
+      background: rgba(63, 185, 80, .08);
+    }
+    .scan-btn.scan-done {
+      color: var(--accent2);
+      border-color: var(--accent2);
+      background: rgba(63, 185, 80, .12);
+    }
+    .scan-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .scan-btn.scanning .scan-icon {
+      animation: scan-spin 1.8s linear infinite;
+      transform-origin: center;
+    }
+
+    @keyframes scan-spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
     }
 
     .theme-toggle {
       display: flex;
       align-items: center;
       gap: 4px;
-      margin-left: 12px;
+      margin-left: 4px;
       font-size: .72rem;
       color: var(--muted);
     }
@@ -172,6 +223,81 @@
       overflow-y: auto;
       padding: 8px 0;
     }
+
+    /* 已发现设备区域 */
+    .discovered-section {
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      max-height: 240px;
+      display: flex;
+      flex-direction: column;
+    }
+    .discovered-section .sidebar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .discovered-section .sidebar-head .disc-count {
+      background: var(--accent);
+      color: #fff;
+      border-radius: 10px;
+      font-size: .6rem;
+      padding: 1px 6px;
+      margin-left: 4px;
+    }
+    .discovered-list {
+      overflow-y: auto;
+      flex: 1;
+    }
+    .discovered-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 14px;
+      font-size: .78rem;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: background .12s, border-color .12s;
+    }
+    .discovered-item:hover { background: rgba(88,166,255,.06); }
+    .discovered-item.disc-selected {
+      background: rgba(88,166,255,.13);
+      border-left-color: var(--accent);
+    }
+    .discovered-item input[type=checkbox] { cursor: pointer; flex-shrink: 0; }
+    .discovered-item .disc-ip { font-weight: 600; }
+    .discovered-item .disc-meta { color: var(--muted); font-size: .7rem; }
+    .discovered-actions {
+      padding: 6px 10px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .discovered-actions select, .discovered-actions input {
+      width: 100%;
+      padding: 3px 6px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--fg);
+      font-size: .75rem;
+    }
+    .disc-btn-row { display: flex; gap: 5px; }
+    .disc-btn {
+      flex: 1;
+      padding: 4px 6px;
+      border: none;
+      border-radius: 4px;
+      font-size: .72rem;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    .disc-btn.sec { background: var(--border); color: var(--text); }
+    .disc-scan-btn { display: none; } /* replaced by .scan-btn in header-right */
 
     .group-label {
       padding: 6px 14px 4px;
@@ -612,15 +738,52 @@
         <img class="logo-light" src="/logo-opentalon-light.png" alt="OpenTalon 利爪" />
       </div>
       <span style="color:var(--muted);font-size:.8rem;">利爪 · 局域网拓扑与性能监控</span>
-      <div class="status-pill">{{ onlineCount }} 台在线设备</div>
-      <div class="theme-toggle">
-        <span>主题</span>
-        <button class="theme-toggle-btn"
-                :class="{active: theme==='light'}"
-                @click="setTheme('light')">亮色</button>
-        <button class="theme-toggle-btn"
-                :class="{active: theme==='dark'}"
-                @click="setTheme('dark')">暗色</button>
+
+      <!-- 右侧功能区 -->
+      <div class="header-right">
+        <!-- 在线设备数 -->
+        <div class="online-badge">
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="8" cy="8" r="3"/>
+            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/>
+          </svg>
+          <span>{{ onlineCount }} 在线</span>
+        </div>
+
+        <!-- 扫描按钮 -->
+        <button class="scan-btn" :class="{scanning: isScanning, 'scan-done': scanJustDone}" @click="toggleScan"
+                :title="isScanning ? ('点击终止扫描' + (currentScannerIP ? '（扫描者：' + currentScannerIP + '）' : '')) : (scanJustDone ? '上次扫描已完成，点击重新扫描' : '扫描局域网（无在线客户端时由服务器扫描）')">
+          <!-- 扫描中：雷达旋转图标 -->
+          <svg v-if="isScanning" class="scan-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <circle cx="12" cy="12" r="5"/>
+            <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+            <line x1="12" y1="12" x2="18.5" y2="5.5"/>
+          </svg>
+          <!-- 完成：对勾图标 -->
+          <svg v-else-if="scanJustDone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <!-- 默认：雷达静态图标 -->
+          <svg v-else class="scan-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <circle cx="12" cy="12" r="5"/>
+            <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+            <line x1="12" y1="12" x2="18.5" y2="5.5"/>
+          </svg>
+          <span>{{ isScanning ? '扫描中…' : (scanJustDone ? '扫描完成' : '扫描局域网') }}</span>
+        </button>
+
+        <!-- 主题切换 -->
+        <div class="theme-toggle">
+          <span>主题</span>
+          <button class="theme-toggle-btn"
+                  :class="{active: theme==='light'}"
+                  @click="setTheme('light')">亮色</button>
+          <button class="theme-toggle-btn"
+                  :class="{active: theme==='dark'}"
+                  @click="setTheme('dark')">暗色</button>
+        </div>
       </div>
     </header>
 
@@ -656,6 +819,42 @@
         <div class="join-bar">
           <input class="join-input" id="join-addr" v-model="joinAddr" placeholder="请输入要加入的服务器 IP" @keyup.enter="joinDevice">
           <button class="join-btn" @click="joinDevice">加入</button>
+        </div>
+
+        <!-- 已发现设备 -->
+        <div class="discovered-section" v-if="discovered.length || discOpen">
+          <div class="sidebar-head" @click="discOpen = !discOpen">
+            <span>已发现设备 <span class="disc-count" v-if="discovered.length">{{ discovered.length }}</span></span>
+            <span>{{ discOpen ? '▾' : '▸' }}</span>
+          </div>
+          <template v-if="discOpen">
+            <div class="discovered-list">
+              <div class="discovered-item"
+                   v-for="d in discovered"
+                   :key="d.id"
+                   :class="{'disc-selected': discSelected.includes(d.id)}"
+                   @click="toggleDiscSelect(d.id)">
+                <input type="checkbox" :value="d.id" v-model="discSelected" @click.stop />
+                <div>
+                  <div class="disc-ip">{{ d.ip }}</div>
+                  <div class="disc-meta">{{ [d.vendor, d.hostname, d.os_hint].filter(Boolean).join(' · ') || d.mac }}</div>
+                </div>
+              </div>
+              <div v-if="!discovered.length" style="padding:10px 14px;color:var(--muted);font-size:.75rem;">暂无发现新设备</div>
+            </div>
+            <div class="discovered-actions" v-if="discSelected.length">
+              <div style="font-size:.72rem;color:var(--muted);">已选 <b style="color:var(--accent)">{{ discSelected.length }}</b> 台 — 设置分组后点击纳管：</div>
+              <input v-model="discGroup" placeholder="分组名（留空使用 discovered）" />
+              <select v-model="discParentId">
+                <option :value="null">— 不指定父设备 —</option>
+                <option v-for="dev in allDevices" :key="dev.id" :value="dev.id">{{ dev.hostname }} ({{ dev.ip }})</option>
+              </select>
+              <div class="disc-btn-row">
+                <button class="disc-btn sec" @click="discSelected=[];discGroup='';discParentId=null">取消</button>
+                <button class="disc-btn" @click="adoptDevices">确认纳管</button>
+              </div>
+            </div>
+          </template>
         </div>
       </aside>
 
@@ -823,6 +1022,13 @@
         let g6Graph = null;
         let gaugeCharts = {};
         let pollTimer = null;
+
+        // 已发现设备
+        const discovered = ref([]);
+        const discOpen = ref(false);
+        const discSelected = ref([]);
+        const discGroup = ref('');
+        const discParentId = ref(null);
 
         // 将树结构拍平成一维数组，便于统计与列表展示
         const allDevices = computed(() => flattenTree(tree.value));
@@ -1557,12 +1763,109 @@
           }
         }
 
+        // ── 已发现设备 ─────────────────────────────────────────────────────────
+        async function fetchDiscovered() {
+          try {
+            const res = await apiFetch('/api/discovered');
+            const data = await res.json();
+            discovered.value = data.data || [];
+            if (discovered.value.length > 0) discOpen.value = true;
+          } catch (_) {}
+        }
+
+        // ── 扫描状态轮询 ──────────────────────────────────────────
+        const isScanning = ref(false);
+        const currentScannerIP = ref('');
+        const scanJustDone = ref(false);  // 短暂显示"完成"状态
+        let scanDoneTimer = null;
+
+        async function fetchScanStatus() {
+          if (!token.value) return;
+          try {
+            const res = await apiFetch('/api/scan/status');
+            if (!res.ok) return;
+            const data = await res.json();
+            const wasScanning = isScanning.value;
+            isScanning.value = !!data.running;
+            currentScannerIP.value = data.scanner_ip || '';
+            // 扫描刚结束：显示"完成"态 6 秒
+            if (wasScanning && !isScanning.value) {
+              scanJustDone.value = true;
+              if (scanDoneTimer) clearTimeout(scanDoneTimer);
+              scanDoneTimer = setTimeout(() => { scanJustDone.value = false; }, 6000);
+              // 刷新已发现列表
+              fetchDiscovered();
+            }
+          } catch (_) {}
+        }
+
+        // 切换扫描：未扫描则触发，扫描中则终止
+        async function toggleScan() {
+          try {
+            if (isScanning.value) {
+              await apiFetch('/api/scan/stop', { method: 'POST' });
+              isScanning.value = false;
+              currentScannerIP.value = '';
+              scanJustDone.value = false;
+            } else {
+              scanJustDone.value = false;
+              await apiFetch('/api/scan/trigger', { method: 'POST' });
+              // 乐观更新；状态轮询会确认真实状态
+              isScanning.value = true;
+            }
+          } catch (_) {}
+        }
+
+        // 兼容旧名称
+        const triggerScan = toggleScan;
+
+        // 每 3 秒轮询扫描状态
+        setInterval(fetchScanStatus, 3000);
+
+        function toggleDiscSelect(id) {
+          const idx = discSelected.value.indexOf(id);
+          if (idx >= 0) discSelected.value.splice(idx, 1);
+          else discSelected.value.push(id);
+        }
+
+        async function adoptDevices() {
+          if (!discSelected.value.length) return;
+          try {
+            await apiFetch('/api/discovered/adopt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ids: discSelected.value,
+                group: discGroup.value || 'discovered',
+                parent_id: discParentId.value || undefined
+              })
+            });
+            discSelected.value = [];
+            discGroup.value = '';
+            discParentId.value = null;
+            await Promise.all([fetchTree(), fetchDiscovered()]);
+          } catch (e) {
+            alert('纳管失败：' + e.message);
+          }
+        }
+
+        // 定期刷新已发现设备列表（30 秒一次）
+        setInterval(fetchDiscovered, 30000);
+        // 首次加载
+        onMounted(() => {
+          fetchDiscovered();
+          fetchScanStatus();
+        });
+
         return {
           tree, allDevices, groupedDevices, onlineCount, selected, metrics,
           drawerOpen, joinAddr, selectDevice, joinDevice, formatBytes,
           token, showLogin, loginForm, doLogin,
           editForm, saving, saveDevice, deleteDevice,
-          theme, setTheme, parseIPs
+          theme, setTheme, parseIPs,
+          discovered, discOpen, discSelected, discGroup, discParentId,
+          isScanning, currentScannerIP, scanJustDone,
+          toggleScan, triggerScan, adoptDevices, toggleDiscSelect
         };
       }
     }).mount('#app');

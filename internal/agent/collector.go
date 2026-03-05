@@ -26,6 +26,7 @@ type Snapshot struct {
 	OS             string
 	CPUUsage       float64
 	MemUsage       float64
+	MemTotal       uint64 // bytes, total physical RAM
 	DiskUsage      float64
 	TCPConnections int
 	UDPConnections int
@@ -78,6 +79,7 @@ func (c *Collector) Collect() (*Snapshot, error) {
 	// Memory
 	if vm, err := mem.VirtualMemory(); err == nil {
 		snap.MemUsage = vm.UsedPercent
+		snap.MemTotal = vm.Total
 	}
 
 	// Disk (largest mount or /)

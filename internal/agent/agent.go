@@ -7,11 +7,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/vesaa/opentalon/internal/config"
 	"github.com/vesaa/opentalon/internal/models"
+	"github.com/vesaa/opentalon/internal/scanner"
 )
 
 // RegisterPayload is sent once at startup to create/update the device record.
@@ -36,6 +38,7 @@ type MetricsPayload struct {
 	GatewayIP      string  `json:"gateway_ip"`
 	CPUUsage       float64 `json:"cpu_usage"`
 	MemUsage       float64 `json:"mem_usage"`
+	MemTotal       uint64  `json:"mem_total"`
 	DiskUsage      float64 `json:"disk_usage"`
 	RxBytes        int64   `json:"rx_bytes"`
 	TxBytes        int64   `json:"tx_bytes"`
@@ -104,6 +107,7 @@ func Run(cfg *config.Config) error {
 			GatewayIP:      snap.GatewayIP,
 			CPUUsage:       snap.CPUUsage,
 			MemUsage:       snap.MemUsage,
+			MemTotal:       snap.MemTotal,
 			DiskUsage:      snap.DiskUsage,
 			RxBytes:        snap.RxBytes,
 			TxBytes:        snap.TxBytes,
@@ -111,8 +115,16 @@ func Run(cfg *config.Config) error {
 			UDPConnections: snap.UDPConnections,
 		}
 
-		if err := postJSON(base+"/api/metrics", token, payload, cfg.AgentDebugHTTP); err != nil {
+		var metricsResp struct {
+			OK       bool `json:"ok"`
+			ScanTask bool `json:"scan_task"`
+		}
+		if err := postJSONResp(base+"/api/metrics", token, payload, &metricsResp, cfg.AgentDebugHTTP); err != nil {
 			fmt.Printf("[agent] report error: %v\n", err)
+			return
+		}
+		if metricsResp.ScanTask && cfg.DiscoveryEnabled {
+			go runScan(base, token, snap.LocalIP, cfg.AgentDebugHTTP)
 		}
 	}
 
@@ -130,9 +142,13 @@ func Run(cfg *config.Config) error {
 	return nil
 }
 
-// postJSON sends v as JSON via HTTP POST with the Bearer token in the Authorization header.
-// This ensures every data-plane request is authenticated.
+// postJSON sends v as JSON via HTTP POST with Bearer token authentication.
 func postJSON(url, bearerToken string, v any, debug bool) error {
+	return postJSONResp(url, bearerToken, v, nil, debug)
+}
+
+// postJSONResp sends v as JSON POST and optionally decodes the response body into out.
+func postJSONResp(url, bearerToken string, v any, out any, debug bool) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -167,5 +183,40 @@ func postJSON(url, bearerToken string, v any, debug bool) error {
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("server returned %d", resp.StatusCode)
 	}
+
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			// non-fatal: response body decode failure doesn't break reporting
+			_ = err
+		}
+	} else {
+		_, _ = io.Copy(io.Discard, resp.Body)
+	}
 	return nil
+}
+
+// runScan performs an ARP scan of all local subnets and reports results to the server.
+func runScan(base, token, localIP string, debug bool) {
+	results, err := scanner.ScanLocalSubnets(localIP)
+	if err != nil {
+		if debug {
+			fmt.Printf("[agent] scan error: %v\n", err)
+		}
+		return
+	}
+	if len(results) == 0 {
+		return
+	}
+	type reportPayload struct {
+		ScannerIP string               `json:"scanner_ip"`
+		Devices   []scanner.ScanResult `json:"devices"`
+	}
+	payload := reportPayload{ScannerIP: localIP, Devices: results}
+	if err := postJSON(base+"/api/discovered/report", token, payload, debug); err != nil {
+		if debug {
+			fmt.Printf("[agent] scan report error: %v\n", err)
+		}
+	} else if debug {
+		fmt.Printf("[agent] scan reported %d devices\n", len(results))
+	}
 }

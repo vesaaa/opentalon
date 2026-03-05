@@ -1,4 +1,4 @@
-﻿// Package server provides the OpenTalon Gin-based REST API.
+// Package server provides the OpenTalon Gin-based REST API.
 // Routes are split into two groups:
 //   - Control-plane (port 6677): JWT-protected; serves the Web UI and admin API.
 //   - Data-plane   (port 1616): Bearer-token-protected; receives agent reports.
@@ -11,10 +11,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vesaa/opentalon/internal/models"
+	"github.com/vesaa/opentalon/internal/scanner"
 )
 
 // adminCredentials are set at startup from config.
-// v0.2+ will replace this with DB-backed user management.
 var adminUser, adminPass string
 
 // SetAdminCredentials stores credentials for /api/login.
@@ -24,55 +24,48 @@ func SetAdminCredentials(user, pass string) {
 }
 
 // RegisterControlRoutes wires up the control-plane API on the given engine.
-// Call this on the engine bound to port 6677.
-//
-//	Public:   POST /api/login
-//	Protected (JWT): all other /api/* routes + topology
 func RegisterControlRoutes(r *gin.Engine) {
 	api := r.Group("/api")
 
-	// 鈹€鈹€ Public endpoints 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+	// Public endpoints
 	api.POST("/login", handleLogin)
-
 	api.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().UTC()})
 	})
 
-	// 鈹€鈹€ JWT-protected endpoints 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+	// JWT-protected endpoints
 	auth := api.Group("/", JWTMiddleware())
 	{
-		// Topology
 		auth.GET("/devices/tree", handleDeviceTree)
 		auth.GET("/devices/:id/metrics", handleDeviceMetrics)
-
-		// Device management (initiated by operator, not agent)
 		auth.DELETE("/devices/:id", handleDeviceDelete)
 		auth.PATCH("/devices/:id", handleDeviceUpdate)
+
+		// LAN discovery
+		auth.GET("/discovered", handleGetDiscovered)
+		auth.POST("/discovered/adopt", handleAdoptDiscovered)
+		auth.POST("/scan/trigger", handleScanTrigger)
+		auth.POST("/scan/stop", handleScanStop)
+		auth.GET("/scan/status", handleScanStatus)
 	}
 }
 
 // RegisterDataRoutes wires up the data-plane API on the given engine.
-// Call this on the engine bound to port 1616.
-// All routes require a valid Bearer agent token.
 func RegisterDataRoutes(r *gin.Engine) {
 	api := r.Group("/api", AgentTokenMiddleware())
 	{
 		api.POST("/devices/register", handleDeviceRegister)
 		api.POST("/metrics", handleMetricsIngest)
+		api.POST("/discovered/report", handleDiscoveredReport)
 	}
 
-	// Data-plane health (no auth, used by load-balancers / k8s probes)
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 }
 
-// 鈹€鈹€ Handlers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ── Handlers ──────────────────────────────────────────────────────────────────
 
-// handleLogin accepts username + password and returns a signed JWT.
-//
-//	POST /api/login
-//	Body: { "username": "admin", "password": "admin" }
 func handleLogin(c *gin.Context) {
 	var body struct {
 		Username string `json:"username" binding:"required"`
@@ -82,26 +75,18 @@ func handleLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username and password required"})
 		return
 	}
-
 	if body.Username != adminUser || body.Password != adminPass {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-
 	token, err := GenerateJWT(body.Username)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"token":      token,
-		"expires_in": 86400, // seconds
-		"type":       "Bearer",
-	})
+	c.JSON(http.StatusOK, gin.H{"token": token, "expires_in": 86400, "type": "Bearer"})
 }
 
-// handleDeviceTree returns the full topology as a nested JSON tree.
 func handleDeviceTree(c *gin.Context) {
 	tree, err := GetDeviceTree()
 	if err != nil {
@@ -111,10 +96,8 @@ func handleDeviceTree(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": tree})
 }
 
-// handleDeviceDelete removes a device record by ID.
 func handleDeviceDelete(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
@@ -126,17 +109,12 @@ func handleDeviceDelete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": id})
 }
 
-// handleDeviceUpdate updates mutable fields of a device (Web UI initiated).
-// Device hostname comes exclusively from the agent and is intentionally
-// immutable from the control-plane; operators can only adjust group and remark.
 func handleDeviceUpdate(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-
 	var body struct {
 		Group  *string `json:"group"`
 		Remark *string `json:"remark"`
@@ -145,7 +123,6 @@ func handleDeviceUpdate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	updates := make(map[string]any)
 	if body.Group != nil {
 		updates["group"] = *body.Group
@@ -157,18 +134,15 @@ func handleDeviceUpdate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
 		return
 	}
-
 	if err := DB.Model(&models.Device{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	var dev models.Device
 	if err := DB.First(&dev, id).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"updated": id})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"id":       dev.ID,
 		"hostname": dev.Hostname,
@@ -177,7 +151,6 @@ func handleDeviceUpdate(c *gin.Context) {
 	})
 }
 
-// handleDeviceRegister accepts registration from agents (data-plane only).
 func handleDeviceRegister(c *gin.Context) {
 	var payload RegisterPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
@@ -192,7 +165,8 @@ func handleDeviceRegister(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": dev.ID, "hostname": dev.Hostname})
 }
 
-// handleMetricsIngest accepts a metrics report from an agent (data-plane only).
+// handleMetricsIngest accepts a metrics report and responds with scan_task when
+// this agent is the elected LAN scanner for its subnet.
 func handleMetricsIngest(c *gin.Context) {
 	var payload struct {
 		Hostname       string  `json:"hostname"`
@@ -200,6 +174,7 @@ func handleMetricsIngest(c *gin.Context) {
 		GatewayIP      string  `json:"gateway_ip"`
 		CPUUsage       float64 `json:"cpu_usage"`
 		MemUsage       float64 `json:"mem_usage"`
+		MemTotal       uint64  `json:"mem_total"`
 		DiskUsage      float64 `json:"disk_usage"`
 		RxBytes        int64   `json:"rx_bytes"`
 		TxBytes        int64   `json:"tx_bytes"`
@@ -211,7 +186,6 @@ func handleMetricsIngest(c *gin.Context) {
 		return
 	}
 
-	// Resolve device by IP (auto-register unknown agents)
 	var dev models.Device
 	if err := DB.Where("ip = ?", payload.IP).First(&dev).Error; err != nil {
 		reg := RegisterPayload{
@@ -230,14 +204,12 @@ func handleMetricsIngest(c *gin.Context) {
 		dev = *d
 	}
 
-	// On every metrics report, gently keep topology in sync (avoid thrashing parent wiring).
-	
-	// 閬垮厤楂橀涓婃姤瀵艰嚧鎷撴墤鍏崇郴琚弽澶嶅埛鏂般€?
 	MaybeWireParentByGateway(&dev, payload.GatewayIP)
 
 	m := &models.Metrics{
 		CPUUsage:       payload.CPUUsage,
 		MemUsage:       payload.MemUsage,
+		MemTotal:       payload.MemTotal,
 		DiskUsage:      payload.DiskUsage,
 		RxBytes:        payload.RxBytes,
 		TxBytes:        payload.TxBytes,
@@ -250,23 +222,125 @@ func handleMetricsIngest(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	ElectScanners()
+
+	scanTask := IsElectedScanner(payload.IP)
+	if scanTask {
+		// Notify scan state so the UI can show the animation.
+		// Auto-timeout in 120s in case the agent never reports back.
+		SetScanActive(payload.IP, nil, 120)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":        true,
+		"scan_task": scanTask,
+	})
+}
+
+// handleDiscoveredReport receives ARP scan results from an elected agent (data-plane).
+func handleDiscoveredReport(c *gin.Context) {
+	var payload struct {
+		ScannerIP string               `json:"scanner_ip"`
+		Devices   []scanner.ScanResult `json:"devices"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var managedIPs []string
+	DB.Model(&models.Device{}).Pluck("ip", &managedIPs)
+	managed := make(map[string]struct{}, len(managedIPs))
+	for _, ip := range managedIPs {
+		managed[ip] = struct{}{}
+	}
+	count := 0
+	for _, d := range payload.Devices {
+		if _, ok := managed[d.IP]; ok {
+			continue
+		}
+		UpsertDiscovered(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, payload.ScannerIP)
+		count++
+	}
+	// Agent finished its scan — mark scan state as done with result count.
+	SetScanDoneWithCount(count)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "upserted": count})
+}
+
+// handleGetDiscovered returns the discovered-but-unmanaged device list (control-plane).
+func handleGetDiscovered(c *gin.Context) {
+	list, err := GetDiscoveredDevices()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// handleAdoptDiscovered moves selected discovered devices into managed devices.
+func handleAdoptDiscovered(c *gin.Context) {
+	var body struct {
+		IDs      []uint `json:"ids" binding:"required"`
+		Group    string `json:"group"`
+		ParentID *uint  `json:"parent_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := AdoptDiscoveredDevices(body.IDs, body.Group, body.ParentID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "adopted": len(body.IDs)})
+}
+
+// handleScanTrigger requests an immediate ARP scan.
+// If no clients are online, the server performs the scan itself; otherwise
+// it re-elects scanners so the elected agent picks up scan_task=true on next heartbeat.
+// In both cases, SetScanActive is called immediately so the UI animation starts right away.
+func handleScanTrigger(c *gin.Context) {
+	if !HasOnlineClients() {
+		// No online agents → server scans.
+		// SetScanActive with "server" placeholder; runServerScan() will overwrite with real IP.
+		SetScanActive("server", nil, 180)
+		RequestServerScan()
+		c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "server"})
+		return
+	}
+	// Online agents exist → refresh election; elected agent picks up scan_task on next heartbeat.
+	ElectScanners()
+	scannerIP := GetAnyElectedScannerIP()
+	if scannerIP == "" {
+		scannerIP = "agent"
+	}
+	// SetScanActive immediately so UI shows animation while waiting for agent heartbeat (≤30s).
+	SetScanActive(scannerIP, nil, 120)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "agent", "scanner_ip": scannerIP})
+}
+
+// handleScanStop cancels any currently running scan.
+func handleScanStop(c *gin.Context) {
+	CancelActiveScan()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// handleScanStatus returns the current scan state (running / scanner_ip).
+func handleScanStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, GetScanState())
 }
 
 // handleDeviceMetrics returns the latest metrics for a device (control-plane).
 func handleDeviceMetrics(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 	m, err := GetLatestMetrics(uint(id))
 	if err != nil {
-		// 鏃犳寚鏍囨椂杩斿洖 200 + null锛岄伩鍏嶅墠绔?404锛涜璁惧鍙兘灏氭湭鏈?Agent 涓婃姤鎴?id 涓庝笂鎶ヨ澶囦笉涓€鑷?
 		c.JSON(http.StatusOK, gin.H{"data": nil})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": m})
 }
-
