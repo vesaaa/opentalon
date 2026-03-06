@@ -24,6 +24,18 @@
 
 ### 安装
 
+#### 一键安装（推荐，Linux / macOS）
+
+```bash
+# 安装最新版本的 Server 并注册为系统服务
+bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) server
+
+# 安装指定版本的 Agent（例如 v0.1.15）
+bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) agent --version v0.1.15
+```
+
+#### 手动下载二进制
+
 ```bash
 # Linux amd64 通用版（推荐，适用于 CentOS 7 / Debian / Ubuntu / Rocky / Alpine 等）
 curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-linux-amd64 -o opentalon
