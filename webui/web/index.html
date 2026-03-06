@@ -942,6 +942,13 @@
               <label style="font-size:.75rem;color:var(--muted);">分组</label>
               <input class="drawer-input" v-model="editForm.group" placeholder="例如：办公网络、实验室等">
             </div>
+            <div class="drawer-form-row">
+              <label style="font-size:.75rem;color:var(--muted);">父节点</label>
+              <select class="drawer-input" v-model="editForm.parent_id">
+                <option :value="null">— 不指定父设备 —</option>
+                <option v-for="d in parentOptionsForDiscovered" :key="d.id" :value="d.id">{{ d.hostname || d.ip }} ({{ d.ip }})</option>
+              </select>
+            </div>
             <div class="drawer-actions">
               <div>
                 <button class="btn-primary" :disabled="saving" @click="saveDevice">保存</button>
@@ -1118,8 +1125,8 @@
         const drawerOpen = ref(false);
         const joinAddr = ref('');
         const showJoinInput = ref(false);
-        // 备注和分组可在 Web 界面编辑；主机名由 Agent 上报
-        const editForm = ref({ remark: '', group: '' });
+        // 备注和分组可在 Web 界面编辑；主机名由 Agent 上报；parent_id 仅用于扫描纳管设备
+        const editForm = ref({ remark: '', group: '', parent_id: null });
         // 主题（light | dark）
         const theme = ref('light');
         const saving = ref(false);
@@ -1146,6 +1153,24 @@
         const allDevices = computed(() => flattenTree(tree.value));
         const onlineCount = computed(() => allDevices.value.filter(d => d.is_online).length);
         const isDiscoveredNode = computed(() => selected.value && selected.value.agent_ver === 'discovered');
+        // 无 Agent 设备可选的父节点：排除自身及其所有后代，避免成环
+        const parentOptionsForDiscovered = computed(() => {
+          if (!selected.value || !isDiscoveredNode.value) return [];
+          const flat = allDevices.value;
+          const sel = selected.value;
+          const descIds = new Set();
+          function collectDescendants(nodes) {
+            (nodes || []).forEach(n => {
+              if (n.id === sel.id) {
+                flattenTree(n.children || []).forEach(c => descIds.add(c.id));
+                return;
+              }
+              collectDescendants(n.children);
+            });
+          }
+          collectDescendants(tree.value);
+          return flat.filter(d => d.id !== sel.id && !descIds.has(d.id));
+        });
         // 按分组聚合设备，用于左侧分组列表
         const groupedDevices = computed(() => {
           const map = {};
@@ -1550,6 +1575,7 @@
                 selected.value = cur;
                 editForm.value.remark = cur.remark || '';
                 editForm.value.group = cur.group || '';
+                editForm.value.parent_id = cur.parent_id ?? null;
               }
             }
           } catch (e) {
@@ -1671,6 +1697,7 @@
           probeError.value = '';
           editForm.value.remark = dev.remark || '';
           editForm.value.group = dev.group || '';
+          editForm.value.parent_id = dev.parent_id ?? null;
 
           // 已安装 Agent 的节点定期拉取 metrics；仅扫描纳管的节点不需要。
           if (dev.agent_ver && dev.agent_ver !== 'discovered') {
@@ -1750,9 +1777,8 @@
               layout: {
                 type: 'dagre',
                 rankdir: 'TB',
-                nodesep: 36,
-                // 放大层级之间的纵向间距，让拓扑在上下方向占据更多空间。
-                ranksep: 110
+                nodesep: 18,
+                ranksep: 52
               },
               defaultNode: {
                 type: 'ot-device-node',
@@ -1914,13 +1940,17 @@
           }
           try {
             saving.value = true;
+            const body = {
+              remark: editForm.value.remark || '',
+              group: editForm.value.group || undefined
+            };
+            if (isDiscoveredNode.value) {
+              body.parent_id = editForm.value.parent_id || null;
+            }
             await apiFetch(`/api/devices/${selected.value.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                remark: editForm.value.remark || '',
-                group: editForm.value.group || undefined
-              })
+              body: JSON.stringify(body)
             });
             await fetchTree();
           } catch (e) {
@@ -2056,7 +2086,7 @@
           isScanning, currentScannerIP, scanJustDone,
           toggleScan, triggerScan, adoptDevices, toggleDiscSelect,
           showJoinInput, toggleJoinInput,
-          isDiscoveredNode, probeDevice, probeResult, probing, probeError,
+          isDiscoveredNode, parentOptionsForDiscovered, probeDevice, probeResult, probing, probeError,
           resetView
         };
       }

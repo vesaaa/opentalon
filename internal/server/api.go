@@ -116,9 +116,15 @@ func handleDeviceUpdate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
+	var dev models.Device
+	if err := DB.First(&dev, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+		return
+	}
 	var body struct {
-		Group  *string `json:"group"`
-		Remark *string `json:"remark"`
+		Group    *string `json:"group"`
+		Remark   *string `json:"remark"`
+		ParentID *uint   `json:"parent_id"` // 仅对 agent_ver=discovered 的设备生效
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -131,15 +137,25 @@ func handleDeviceUpdate(c *gin.Context) {
 	if body.Remark != nil {
 		updates["remark"] = *body.Remark
 	}
-	if len(updates) == 0 {
+	// 仅扫描纳管（无 Agent）设备允许在详情页修改父节点；有 Agent 的设备由上报决定，不在此修改
+	if dev.AgentVer == "discovered" && body.ParentID != nil {
+		updates["parent_id"] = *body.ParentID
+	}
+	clearParent := dev.AgentVer == "discovered" && body.ParentID == nil
+	if len(updates) == 0 && !clearParent {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
 		return
 	}
-	if err := DB.Model(&models.Device{}).Where("id = ?", id).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	if len(updates) > 0 {
+		if err := DB.Model(&dev).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
-	var dev models.Device
+	// 清除父节点：GORM 的 Updates(map) 对 nil 可能不写 NULL，单独执行
+	if clearParent {
+		DB.Model(&dev).Update("parent_id", nil)
+	}
 	if err := DB.First(&dev, id).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"updated": id})
 		return

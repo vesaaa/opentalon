@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -42,11 +43,26 @@ func SetDiscoveryEnabled(v bool) { discoveryEnabled = v }
 const heartbeatTimeout = 30 * time.Second
 
 // InitDB opens the database and runs AutoMigrate.
+// When db_path is relative (e.g. "opentalon.db"), it is resolved relative to the
+// executable's directory so the same DB file is used regardless of working directory.
 func InitDB(cfg *config.Config) error {
+	dbPath := cfg.DBPath
+	if cfg.DBDriver == "sqlite" || cfg.DBDriver == "" {
+		if dbPath == "" {
+			dbPath = "opentalon.db"
+		}
+		if !filepath.IsAbs(dbPath) {
+			exe, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("resolving executable path: %w", err)
+			}
+			dbPath = filepath.Join(filepath.Dir(exe), dbPath)
+		}
+	}
 	var dialector gorm.Dialector
 	switch cfg.DBDriver {
 	case "sqlite", "":
-		dialector = sqlite.Open(cfg.DBPath)
+		dialector = sqlite.Open(dbPath)
 	default:
 		return fmt.Errorf("unsupported db_driver %q (use 'sqlite' or 'mysql')", cfg.DBDriver)
 	}
@@ -73,7 +89,7 @@ func InitDB(cfg *config.Config) error {
 	}
 
 	DB = db
-	log.Printf("[db] opened %s/%s", cfg.DBDriver, cfg.DBPath)
+	log.Printf("[db] opened %s/%s", cfg.DBDriver, dbPath)
 	return nil
 }
 
