@@ -5,6 +5,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -219,6 +220,16 @@ func handleMetricsIngest(c *gin.Context) {
 			return
 		}
 		dev = *d
+	} else if dev.AgentVer == "discovered" {
+		// 该设备原是扫描纳管，现由 Agent 上报 → 升级为 Agent 设备，覆盖 hostname/gateway，前端会显示 Agent 抽屉
+		DB.Model(&dev).Updates(map[string]any{
+			"hostname":   payload.Hostname,
+			"gateway_ip": payload.GatewayIP,
+			"agent_ver":  "unknown",
+		})
+		dev.Hostname = payload.Hostname
+		dev.GatewayIP = payload.GatewayIP
+		dev.AgentVer = "unknown"
 	}
 
 	MaybeWireParentByGateway(&dev, payload.GatewayIP)
@@ -270,17 +281,26 @@ func handleDiscoveredReport(c *gin.Context) {
 	for _, ip := range managedIPs {
 		managed[ip] = struct{}{}
 	}
+	autoAdopt := GetScanAutoAdopt()
 	count := 0
 	for _, d := range payload.Devices {
 		if _, ok := managed[d.IP]; ok {
 			continue
 		}
-		UpsertDiscovered(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, payload.ScannerIP)
+		if autoAdopt {
+			if _, err := AdoptScanResult(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, payload.ScannerIP); err != nil {
+				log.Printf("[discovered] adopt scan result %s: %v", d.IP, err)
+				continue
+			}
+		} else {
+			UpsertDiscovered(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, payload.ScannerIP)
+		}
 		count++
 	}
-	// Agent finished its scan — mark scan state as done with result count.
+	// 每次扫描结果处理完后，统一为所有网关为空的设备补 /24 .1，避免遗漏（与是否 autoAdopt 无关）
+	BackfillGatewayForAllDevices()
 	SetScanDoneWithCount(count)
-	c.JSON(http.StatusOK, gin.H{"ok": true, "upserted": count})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "adopted": count})
 }
 
 // handleGetDiscovered returns the discovered-but-unmanaged device list (control-plane).
@@ -312,27 +332,31 @@ func handleAdoptDiscovered(c *gin.Context) {
 }
 
 // handleScanTrigger requests an immediate ARP scan.
-// If no clients are online, the server performs the scan itself; otherwise
-// it re-elects scanners so the elected agent picks up scan_task=true on next heartbeat.
-// In both cases, SetScanActive is called immediately so the UI animation starts right away.
+// Body optional: { "auto": true } = 首次自动扫描，结果直接纳管进拓扑；不传或 false = 手动扫描，结果仅进左侧“已发现设备”列表.
 func handleScanTrigger(c *gin.Context) {
+	autoAdopt := false
+	var body struct {
+		Auto *bool `json:"auto"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	if body.Auto != nil && *body.Auto {
+		autoAdopt = true
+	}
+
+	// 无在线 Agent 时由服务端作为扫描者（典型场景：刚启动时只有服务端一台）
 	if !HasOnlineClients() {
-		// No online agents → server scans.
-		// SetScanActive with "server" placeholder; runServerScan() will overwrite with real IP.
-		SetScanActive("server", nil, 180)
-		RequestServerScan()
-		c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "server"})
+		SetScanActive("server", nil, 180, autoAdopt)
+		RequestServerScan(autoAdopt)
+		c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "server", "auto_adopt": autoAdopt})
 		return
 	}
-	// Online agents exist → refresh election; elected agent picks up scan_task on next heartbeat.
 	ElectScanners()
 	scannerIP := GetAnyElectedScannerIP()
 	if scannerIP == "" {
 		scannerIP = "agent"
 	}
-	// SetScanActive immediately so UI shows animation while waiting for agent heartbeat (≤30s).
-	SetScanActive(scannerIP, nil, 120)
-	c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "agent", "scanner_ip": scannerIP})
+	SetScanActive(scannerIP, nil, 120, autoAdopt)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "agent", "scanner_ip": scannerIP, "auto_adopt": autoAdopt})
 }
 
 // handleScanStop cancels any currently running scan.

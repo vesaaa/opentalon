@@ -145,6 +145,11 @@
       color: var(--accent);
       border-color: var(--accent);
     }
+    .scan-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
     .scan-btn.scanning {
       color: var(--accent2);
       border-color: var(--accent2);
@@ -156,6 +161,8 @@
       background: rgba(63, 185, 80, .12);
     }
     .scan-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+    /* 仅放大雷达图标本身，避免撑大整个按钮 */
+    .scan-btn .scan-icon { width: 18px; height: 18px; }
     .scan-btn.scanning .scan-icon {
       animation: scan-spin 1.8s linear infinite;
       transform-origin: center;
@@ -169,31 +176,41 @@
     .theme-toggle {
       display: flex;
       align-items: center;
-      gap: 4px;
       margin-left: 4px;
-      font-size: .72rem;
-      color: var(--muted);
     }
 
+    /* 主题切换：单按钮 + 图标，简约风格 */
     .theme-toggle-btn {
+      width: 32px;
+      height: 24px;
       border-radius: 999px;
       border: 1px solid var(--border);
-      padding: 2px 8px;
       background: transparent;
-      color: var(--muted);
+      padding: 0;
       cursor: pointer;
-      font-size: .7rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      transition: background .15s ease-out, border-color .15s ease-out, color .15s ease-out;
     }
 
-    .theme-toggle-btn.active {
+    .theme-toggle-btn.dark {
       background: var(--accent);
-      color: #fff;
       border-color: var(--accent);
+      color: #0d1117;
+    }
+
+    .theme-toggle-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
     }
 
     /* 工作区容器 */
     .workspace {
       flex: 1;
+      min-height: 0;
       display: flex;
       overflow: hidden;
     }
@@ -401,9 +418,10 @@
       color: var(--muted);
     }
 
-    /* 右侧主内容区域 */
+    /* 右侧主内容区域：占满 workspace 剩余高度，使拓扑上下 100% 可见 */
     main {
       flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -412,11 +430,17 @@
     /* Topology canvas area */
     .topo-area {
       flex: 1;
+      min-height: 0;
       position: relative;
       background: var(--bg);
     }
 
     #topo-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
       width: 100%;
       height: 100%;
     }
@@ -747,6 +771,46 @@
       opacity: 0.9;
     }
 
+    /* 通用确认弹窗，复用登录遮罩风格 */
+    .confirm-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 20px 22px 16px;
+      border-radius: 12px;
+      width: 360px;
+      max-width: 90vw;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      color: var(--text);
+    }
+
+    .confirm-title {
+      font-size: .9rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .confirm-message {
+      font-size: .8rem;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    .confirm-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      padding: 6px 12px;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: .8rem;
+      cursor: pointer;
+    }
+
     ::-webkit-scrollbar {
       width: 5px;
     }
@@ -785,7 +849,7 @@
 
         <!-- 扫描按钮 -->
         <button class="scan-btn" :class="{scanning: isScanning, 'scan-done': scanJustDone}" @click="toggleScan"
-                :title="isScanning ? ('点击终止扫描' + (currentScannerIP ? '（扫描者：' + currentScannerIP + '）' : '')) : (scanJustDone ? '上次扫描已完成，点击重新扫描' : '扫描局域网（无在线客户端时由服务器扫描）')">
+                :title="isScanning ? ('点击终止扫描' + (currentScannerIP ? '（扫描者：' + currentScannerIP + '）' : '')) : (scanJustDone ? '上次扫描已完成，点击重新扫描' : '扫描局域网（手动触发）')">
           <!-- 扫描中：雷达旋转图标 -->
           <svg v-if="isScanning" class="scan-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="9"/>
@@ -807,15 +871,21 @@
           <span>{{ isScanning ? '扫描中…' : (scanJustDone ? '扫描完成' : '扫描局域网') }}</span>
         </button>
 
-        <!-- 主题切换 -->
+        <!-- 主题切换：单按钮，亮色用太阳图标，暗色用月亮图标 -->
         <div class="theme-toggle">
-          <span>主题</span>
           <button class="theme-toggle-btn"
-                  :class="{active: theme==='light'}"
-                  @click="setTheme('light')">亮色</button>
-          <button class="theme-toggle-btn"
-                  :class="{active: theme==='dark'}"
-                  @click="setTheme('dark')">暗色</button>
+                  @click="toggleTheme"
+                  :class="{dark: theme==='dark'}"
+                  :title="theme==='light' ? '切换为暗色主题' : '切换为亮色主题'">
+            <!-- 亮色：你提供的太阳图标 -->
+            <svg v-if="theme==='light'" viewBox="0 0 24 24">
+              <path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path>
+            </svg>
+            <!-- 暗色：你之前提供的月亮图标（带星） -->
+            <svg v-else viewBox="0 0 24 24">
+              <path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path>
+            </svg>
+          </button>
         </div>
       </div>
     </header>
@@ -908,12 +978,6 @@
             <p style="font-size:.72rem;margin-top:4px">请在终端执行 <code
                 style="color:var(--accent)">opentalon agent --join &lt;server-ip&gt;</code></p>
           </div>
-          <!-- 手动重置视图按钮：当拓扑跑到屏幕外或不居中时，点击即可重新居中缩放 -->
-          <button class="topo-reset-btn" type="button" @click="resetView"
-                  title="重新居中并缩放以适配所有设备">
-            <span style="font-size:12px;">↺</span>
-            <span>重置视图</span>
-          </button>
         </div>
       </main>
 
@@ -953,7 +1017,7 @@
               <div>
                 <button class="btn-primary" :disabled="saving" @click="saveDevice">保存</button>
               </div>
-              <button class="btn-danger" @click="deleteDevice">删除设备</button>
+              <button class="btn-danger" @click="openDeleteConfirm">删除设备</button>
             </div>
           </div>
 
@@ -1012,7 +1076,7 @@
               <div>
                 <button class="btn-primary" :disabled="saving" @click="saveDevice">保存</button>
               </div>
-              <button class="btn-danger" @click="deleteDevice">删除设备</button>
+              <button class="btn-danger" @click="openDeleteConfirm">删除设备</button>
             </div>
           </div>
 
@@ -1112,6 +1176,18 @@
         </form>
       </div>
     </div>
+
+    <!-- 通用确认弹层（当前仅用于删除设备） -->
+    <div class="login-overlay" v-if="confirmState.visible">
+      <div class="confirm-box">
+        <div class="confirm-title">{{ confirmState.title }}</div>
+        <div class="confirm-message">{{ confirmState.message }}</div>
+        <div class="confirm-actions">
+          <button class="btn-secondary" @click="confirmCancel">取消</button>
+          <button class="btn-danger" @click="confirmOk">确认</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -1136,6 +1212,14 @@
         let userViewLocked = false;
         let gaugeCharts = {};
         let pollTimer = null;
+
+        // 通用确认弹窗状态（目前用于删除设备确认）
+        const confirmState = ref({
+          visible: false,
+          title: '',
+          message: '',
+          onOk: null
+        });
 
         // 已发现设备
         const discovered = ref([]);
@@ -1862,6 +1946,13 @@
             g6Graph.on('node:dragend', () => {
               dragContext = null;
             });
+
+            window.addEventListener('resize', function onResize() {
+              if (!g6Graph || !container) return;
+              const w = container.clientWidth;
+              const h = container.clientHeight;
+              if (w > 0 && h > 0) g6Graph.changeSize(w, h);
+            });
           }
 
           // 首次渲染用 data+render；后续更新用 changeData
@@ -1926,10 +2017,8 @@
           theme.value = mode === 'dark' ? 'dark' : 'light';
         }
 
-        function resetView() {
-          if (!g6Graph) return;
-          // 使用与初始渲染相近的 padding 自动居中并适配所有节点。
-          g6Graph.fitView(60);
+        function toggleTheme() {
+          setTheme(theme.value === 'light' ? 'dark' : 'light');
         }
 
         async function saveDevice() {
@@ -1960,25 +2049,39 @@
           }
         }
 
-        async function deleteDevice() {
+        function openDeleteConfirm() {
           if (!selected.value) return;
-          if (!token.value) {
-            showLogin.value = true;
-            return;
-          }
-          if (!confirm(`确定要删除设备 ${selected.value.hostname || selected.value.ip} 吗？`)) {
-            return;
-          }
-          try {
-            await apiFetch(`/api/devices/${selected.value.id}`, {
-              method: 'DELETE'
-            });
-            drawerOpen.value = false;
-            selected.value = null;
-            metrics.value = null;
-            await fetchTree();
-          } catch (e) {
-            console.error(e);
+          confirmState.value = {
+            visible: true,
+            title: '删除设备',
+            message: `确定要删除设备 ${selected.value.hostname || selected.value.ip} 吗？`,
+            onOk: async () => {
+              try {
+                await apiFetch(`/api/devices/${selected.value.id}`, { method: 'DELETE' });
+                drawerOpen.value = false;
+                selected.value = null;
+                metrics.value = null;
+                await fetchTree();
+              } catch (e) {
+                console.error(e);
+              } finally {
+                confirmState.value.visible = false;
+              }
+            }
+          };
+        }
+
+        function confirmCancel() {
+          confirmState.value.visible = false;
+          confirmState.value.onOk = null;
+        }
+
+        async function confirmOk() {
+          const fn = confirmState.value.onOk;
+          if (typeof fn === 'function') {
+            await fn();
+          } else {
+            confirmState.value.visible = false;
           }
         }
 
@@ -2007,18 +2110,18 @@
             const wasScanning = isScanning.value;
             isScanning.value = !!data.running;
             currentScannerIP.value = data.scanner_ip || '';
-            // 扫描刚结束：显示"完成"态 6 秒
+            // 扫描刚结束：显示"完成"态 6 秒，并刷新列表与拓扑
             if (wasScanning && !isScanning.value) {
               scanJustDone.value = true;
               if (scanDoneTimer) clearTimeout(scanDoneTimer);
               scanDoneTimer = setTimeout(() => { scanJustDone.value = false; }, 6000);
-              // 刷新已发现列表
               fetchDiscovered();
+              fetchTree();
             }
           } catch (_) {}
         }
 
-        // 切换扫描：未扫描则触发，扫描中则终止
+        // 切换扫描：完全手动触发（auto: false），再次点击可终止
         async function toggleScan() {
           try {
             if (isScanning.value) {
@@ -2028,8 +2131,12 @@
               scanJustDone.value = false;
             } else {
               scanJustDone.value = false;
-              await apiFetch('/api/scan/trigger', { method: 'POST' });
-              // 乐观更新；状态轮询会确认真实状态
+              await apiFetch('/api/scan/trigger', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // 手动扫描也采用自动纳管策略：扫描结果直接补网关并加入拓扑
+                body: JSON.stringify({ auto: true })
+              });
               isScanning.value = true;
             }
           } catch (_) {}
@@ -2080,14 +2187,14 @@
           tree, allDevices, groupedDevices, onlineCount, selected, metrics,
           drawerOpen, joinAddr, selectDevice, joinDevice, formatBytes,
           token, showLogin, loginForm, doLogin,
-          editForm, saving, saveDevice, deleteDevice,
-          theme, setTheme, parseIPs,
+          editForm, saving, saveDevice, openDeleteConfirm,
+          theme, setTheme, toggleTheme, parseIPs,
           discovered, discOpen, discSelected, discGroup, discParentId,
           isScanning, currentScannerIP, scanJustDone,
           toggleScan, triggerScan, adoptDevices, toggleDiscSelect,
           showJoinInput, toggleJoinInput,
           isDiscoveredNode, parentOptionsForDiscovered, probeDevice, probeResult, probing, probeError,
-          resetView
+          confirmState, confirmCancel, confirmOk
         };
       }
     }).mount('#app');

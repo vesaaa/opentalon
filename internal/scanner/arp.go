@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -34,6 +35,10 @@ type ScanResult struct {
 // localIP is the agent's primary IP; subnets that don't contain it are also scanned.
 func ScanLocalSubnets(localIP string) ([]ScanResult, error) {
 	cidrs := localCIDRs()
+	if len(cidrs) == 0 {
+		log.Printf("[scanner] 未发现可扫描网段（本机需有私有 IPv4：10.x/172.16-31.x/192.168.x），请检查网卡与地址")
+		return nil, nil
+	}
 	seen := make(map[string]struct{})
 	var all []ScanResult
 	for _, cidr := range cidrs {

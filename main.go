@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vesaa/opentalon/internal/agent"
 	"github.com/vesaa/opentalon/internal/config"
+	"github.com/vesaa/opentalon/internal/models"
 	"github.com/vesaa/opentalon/internal/scanner"
 	"github.com/vesaa/opentalon/internal/server"
 )
@@ -110,13 +112,9 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 			go func() { errCh <- ctrlSrv.ListenAndServe() }()
 			go func() { errCh <- dataSrv.ListenAndServe() }()
 
-			// Server-side ARP scanner: runs on startup and whenever triggered via /api/scan/trigger.
+			// Server-side ARP scanner: 周期性扫描 + 手动触发；不再在启动时强制执行“首次自动扫描”
 			if cfg.DiscoveryEnabled {
 				go func() {
-					// Initial scan after a short warm-up delay.
-					time.Sleep(5 * time.Second)
-					runServerScan()
-					// Periodic scan every 5 minutes + on-demand trigger check.
 					tick := time.NewTicker(5 * time.Minute)
 					checkTick := time.NewTicker(2 * time.Second)
 					defer tick.Stop()
@@ -124,10 +122,10 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 					for {
 						select {
 						case <-tick.C:
-							runServerScan()
+							runServerScan(false, false)
 						case <-checkTick.C:
-							if server.TakeServerScan() {
-								runServerScan()
+							if pending, autoAdopt := server.TakeServerScan(); pending {
+								runServerScan(autoAdopt, false)
 							}
 						}
 					}
@@ -226,18 +224,15 @@ func containsPort(addr string) bool {
 	return false
 }
 
-// runServerScan performs an ARP scan of all local subnets from the server's
-// perspective and stores results in the DiscoveredDevices table.
-func runServerScan() {
-	// Only scan when there are no online clients; otherwise the elected agent scans.
-	if server.HasOnlineClients() {
-		// Clients came online between trigger and now — clear the placeholder state.
+// runServerScan 由本机执行 ARP 扫描。autoAdopt: true=结果直接纳管进拓扑，false=仅进“已发现设备”列表。
+// forceServerScan: true=首次启动时的自动扫描，不判是否有在线 Agent/扫描者，直接由 server 扫；false=有 Agent 时让出扫描。
+func runServerScan(autoAdopt bool, forceServerScan bool) {
+	if !forceServerScan && server.HasOnlineClients() {
 		server.SetScanDone()
 		return
 	}
 	serverIP := localServerIP()
-	// Overwrite placeholder "server" state with real IP; auto-timeout 120s safety net.
-	server.SetScanActive(serverIP, nil, 120)
+	server.SetScanActive(serverIP, nil, 120, autoAdopt)
 
 	results, err := scanner.ScanLocalSubnets("")
 	if err != nil {
@@ -245,7 +240,7 @@ func runServerScan() {
 		return
 	}
 	var managedIPs []string
-	server.DB.Model(nil).Table("devices").Where("deleted_at IS NULL").Pluck("ip", &managedIPs)
+	server.DB.Model(&models.Device{}).Pluck("ip", &managedIPs)
 	managed := make(map[string]struct{}, len(managedIPs))
 	for _, ip := range managedIPs {
 		managed[ip] = struct{}{}
@@ -255,10 +250,22 @@ func runServerScan() {
 		if _, ok := managed[d.IP]; ok {
 			continue
 		}
-		server.UpsertDiscovered(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, serverIP)
+		if autoAdopt {
+			if _, err := server.AdoptScanResult(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, serverIP); err != nil {
+				log.Printf("[server-scan] adopt %s: %v", d.IP, err)
+				continue
+			}
+		} else {
+			server.UpsertDiscovered(d.IP, d.MAC, d.Hostname, d.Vendor, d.OSHint, serverIP)
+		}
 		count++
 	}
+	// 全部扫描完成后统一为网关为空的设备补默认网关，避免遗漏
+	server.BackfillGatewayForAllDevices()
 	server.SetScanDoneWithCount(count)
+	if len(results) == 0 {
+		log.Printf("[server-scan] 未发现设备。Win10 单网卡时请检查：1) 防火墙是否放行本程序（专用/私有网络）；2) 在 cmd 中执行 arp -a 看是否有邻居；3) 先 ping 网关或同网段 IP 再扫描")
+	}
 }
 
 // localServerIP returns the primary local private IP of the server process.

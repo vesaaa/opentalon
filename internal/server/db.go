@@ -121,6 +121,11 @@ func UpsertDevice(payload RegisterPayload) (*models.Device, error) {
 	} else if result.Error != nil {
 		return nil, result.Error
 	} else {
+		// 已有 Agent 的设备：不允许被扫描纳管数据覆盖；Agent 上报可以覆盖扫描纳管设备
+		if dev.AgentVer != "" && dev.AgentVer != "discovered" && payload.AgentVer == "discovered" {
+			DB.Model(&dev).Updates(map[string]any{"is_online": true, "last_seen": time.Now()})
+			return &dev, nil
+		}
 		// Update mutable fields
 		DB.Model(&dev).Updates(map[string]any{
 			"hostname":     payload.Hostname,
@@ -489,6 +494,16 @@ func subnetKey(ipStr string) string {
 	return fmt.Sprintf("%d.%d.%d", ip4[0], ip4[1], ip4[2])
 }
 
+// defaultGatewayForCidr24 returns the default gateway for a /24 subnet:
+// e.g. 192.168.1.50 -> 192.168.1.1. Used for scanned devices when adopting.
+func defaultGatewayForCidr24(ipStr string) string {
+	s := subnetKey(ipStr)
+	if s == "" {
+		return ""
+	}
+	return s + ".1"
+}
+
 // ─── DiscoveredDevice CRUD ────────────────────────────────────────────────────
 
 // UpsertDiscovered inserts or updates a discovered device record.
@@ -535,6 +550,67 @@ func GetDiscoveredDevices() ([]models.DiscoveredDevice, error) {
 	return list, err
 }
 
+// BackfillGatewayForAllDevices runs after a full scan: (1) 补填空网关为 /24 .1；
+// (2) 对“有网关但无 parent”的设备统一 wireParent，解决创建时父节点尚未入库导致的缺父子关系。
+func BackfillGatewayForAllDevices() {
+	var list []models.Device
+	if err := DB.Where("(gateway_ip = ? OR gateway_ip IS NULL)", "").Find(&list).Error; err != nil {
+		return
+	}
+	for i := range list {
+		dev := &list[i]
+		gw := defaultGatewayForCidr24(dev.IP)
+		if gw == "" {
+			continue
+		}
+		DB.Model(dev).Updates(map[string]any{"gateway_ip": gw})
+		dev.GatewayIP = gw
+		if dev.ParentID == nil && gw != dev.IP {
+			wireParent(dev)
+		}
+	}
+	// 纳管时已带 gateway 但父节点当时尚未存在，导致 parent_id 仍为空：统一再挂一次父节点
+	var noParent []models.Device
+	if err := DB.Where("parent_id IS NULL AND gateway_ip != ? AND gateway_ip IS NOT NULL", "").Find(&noParent).Error; err != nil {
+		return
+	}
+	for i := range noParent {
+		dev := &noParent[i]
+		if dev.GatewayIP == dev.IP {
+			continue
+		}
+		wireParent(dev)
+	}
+}
+
+// AdoptScanResult creates a managed device from a single scan result (no DiscoveredDevice record).
+// Gateway is set to /24 .1 (e.g. 192.168.1.1 for 192.168.1.x). Used for "首次扫描默认纳管".
+func AdoptScanResult(ip, mac, hostname, vendor, osHint, scannerIP string) (*models.Device, error) {
+	if hostname == "" && vendor != "" {
+		hostname = vendor
+	}
+	if hostname == "" {
+		hostname = ip
+	}
+	reg := RegisterPayload{
+		Hostname:    hostname,
+		IP:          ip,
+		GatewayIP:   defaultGatewayForCidr24(ip),
+		Group:       "discovered",
+		NetworkMode: models.NetworkModeBridged,
+		AgentVer:    "discovered",
+		ParentID:    nil,
+	}
+	dev, err := UpsertDevice(reg)
+	if err != nil {
+		return nil, err
+	}
+	if mac != "" {
+		DB.Model(dev).Update("mac", mac)
+	}
+	return dev, nil
+}
+
 // AdoptDiscoveredDevices moves selected discovered devices into the managed devices table.
 // group and parentID are optional; supply zero/empty to skip.
 func AdoptDiscoveredDevices(ids []uint, group string, parentID *uint) error {
@@ -546,6 +622,7 @@ func AdoptDiscoveredDevices(ids []uint, group string, parentID *uint) error {
 		reg := RegisterPayload{
 			Hostname:    d.Hostname,
 			IP:          d.IP,
+			GatewayIP:   defaultGatewayForCidr24(d.IP),
 			Group:       group,
 			NetworkMode: models.NetworkModeBridged,
 			AgentVer:    "discovered",
@@ -585,46 +662,55 @@ type ScanStateInfo struct {
 	LastScanAt time.Time `json:"last_scan_at,omitempty"` // zero if never scanned
 	LastFound  int       `json:"last_found"`             // devices found in last scan
 	// TaskIssued 表示当前这轮扫描任务中，是否已经向被选中的扫描器下发过一次 scan_task。
-	// 为了避免“有扫描资格的设备在一次触发中重复上报”，我们保证：
-	//   - 每次 SetScanActive 时，ScanState 会重新初始化（TaskIssued=false）；
-	//   - 在 metrics 上报路径上，只有在 TaskIssued=false 时才返回 scan_task=true，
-	//     并立即将 TaskIssued 置为 true。
-	// 这样可以确保“同一轮触发中，每个被选中的扫描器最多只会收到一次扫描任务”。
 	TaskIssued bool `json:"-"`
+	// AutoAdopt：true=扫描结果直接纳管进拓扑，false=仅进“已发现设备”列表由用户手动纳管。
+	AutoAdopt bool `json:"-"`
 }
 
 var scanMu sync.Mutex
 var activeScanState ScanStateInfo
-var activeScanCancel func()  // non-nil while a server-side goroutine scan is running
-var pendingServerScan = false // flag consumed by main.go background loop
+var activeScanCancel func()
+var pendingServerScan = false
+var pendingServerScanAutoAdopt = false
 
-// RequestServerScan queues a server-side ARP scan (main.go background goroutine picks it up).
-func RequestServerScan() {
+// RequestServerScan queues a server-side ARP scan. autoAdopt: true=结果直接进拓扑，false=进左侧列表。
+func RequestServerScan(autoAdopt bool) {
 	scanMu.Lock()
 	pendingServerScan = true
+	pendingServerScanAutoAdopt = autoAdopt
 	scanMu.Unlock()
 }
 
-// TakeServerScan atomically reads and clears the pending scan flag.
-func TakeServerScan() bool {
+// TakeServerScan atomically reads and clears the pending scan flag; returns (pending, autoAdopt).
+func TakeServerScan() (pending bool, autoAdopt bool) {
 	scanMu.Lock()
 	defer scanMu.Unlock()
-	v := pendingServerScan
+	pending = pendingServerScan
+	autoAdopt = pendingServerScanAutoAdopt
 	pendingServerScan = false
-	return v
+	pendingServerScanAutoAdopt = false
+	return pending, autoAdopt
+}
+
+// GetScanAutoAdopt returns whether the current scan was triggered with auto-adopt (for result handlers).
+func GetScanAutoAdopt() bool {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	return activeScanState.AutoAdopt
 }
 
 // SetScanActive marks a scan as running. cancelFn may be nil for agent-driven scans.
 // autoStopSec: if > 0, automatically mark done after that many seconds (safety net).
-func SetScanActive(scannerIP string, cancelFn func(), autoStopSec int) {
+// autoAdopt: true=本轮扫描结果直接纳管进拓扑，false=仅进“已发现设备”列表。
+func SetScanActive(scannerIP string, cancelFn func(), autoStopSec int, autoAdopt bool) {
 	scanMu.Lock()
 	activeScanState = ScanStateInfo{
 		Running:   true,
 		ScannerIP: scannerIP,
-		// 保留上一轮的统计信息，便于在 UI 中看到最近一次扫描结果。
 		LastScanAt: activeScanState.LastScanAt,
 		LastFound:  activeScanState.LastFound,
 		TaskIssued: false,
+		AutoAdopt:  autoAdopt,
 	}
 	activeScanCancel = cancelFn
 	scanMu.Unlock()
