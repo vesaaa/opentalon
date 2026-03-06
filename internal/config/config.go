@@ -20,6 +20,12 @@ type Config struct {
 	DBPath     string `mapstructure:"db_path"`
 	DBDriver   string `mapstructure:"db_driver"` // "sqlite" or "mysql"
 	DBDSN      string `mapstructure:"db_dsn"`    // used when db_driver = mysql
+	// LogEnabled: when false, suppresses all internal logging (default).
+	// When true, logs go to stdout unless LogFile is set.
+	LogEnabled bool   `mapstructure:"log_enabled"`
+	// LogFile: optional path to append logs to when LogEnabled is true.
+	// If empty, logs go to stdout.
+	LogFile string `mapstructure:"log_file"`
 
 	// ── Security ──────────────────────────────────────────────────────────────
 	// JWTSecret: HS256 signing key for control-plane Web tokens.
@@ -71,6 +77,8 @@ func Load() (*Config, error) {
 	v.SetDefault("db_path", "opentalon.db")
 	v.SetDefault("db_driver", "sqlite")
 	v.SetDefault("db_dsn", "")
+	v.SetDefault("log_enabled", false)
+	v.SetDefault("log_file", "")
 
 	// Security defaults — MUST be overridden in production via config.yaml or env vars.
 	v.SetDefault("jwt_secret", "OtLn$Xq7@wP2!mZ9#rK6^dV4&eA1*fY") // random placeholder

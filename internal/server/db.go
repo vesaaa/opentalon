@@ -68,7 +68,7 @@ func InitDB(cfg *config.Config) error {
 	}
 
 	newLogger := logger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		log.New(log.Writer(), "\r\n", log.LstdFlags), // respect global log output
 		logger.Config{
 			SlowThreshold:             time.Second, // Slow SQL threshold
 			LogLevel:                  logger.Warn, // Log level

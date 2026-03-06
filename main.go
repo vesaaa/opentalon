@@ -5,11 +5,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -56,6 +61,27 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 			cfg, err := config.Load()
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
+			}
+
+			// Configure logging: disabled by default. When enabled, log to stdout or file.
+			var logFile *os.File
+			if !cfg.LogEnabled {
+				log.SetOutput(io.Discard)
+			} else {
+				if cfg.LogFile != "" {
+					f, err := os.OpenFile(cfg.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+					if err == nil {
+						log.SetOutput(f)
+						logFile = f
+					} else {
+						log.SetOutput(os.Stdout)
+					}
+				} else {
+					log.SetOutput(os.Stdout)
+				}
+			}
+			if logFile != nil {
+				defer logFile.Close()
 			}
 
 			// CLI flag --discovery=false overrides config.
@@ -161,6 +187,27 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 				return fmt.Errorf("loading config: %w", err)
 			}
 
+			// Agent side logging obeys the same config.
+			var logFile *os.File
+			if !cfg.LogEnabled {
+				log.SetOutput(io.Discard)
+			} else {
+				if cfg.LogFile != "" {
+					f, err := os.OpenFile(cfg.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+					if err == nil {
+						log.SetOutput(f)
+						logFile = f
+					} else {
+						log.SetOutput(os.Stdout)
+					}
+				} else {
+					log.SetOutput(os.Stdout)
+				}
+			}
+			if logFile != nil {
+				defer logFile.Close()
+			}
+
 			// CLI flags override config values.
 			if join, _ := cmd.Flags().GetString("join"); join != "" {
 				if !containsPort(join) {
@@ -204,7 +251,29 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 		},
 	}
 
-	root.AddCommand(serverCmd, agentCmd, versionCmd)
+	// ── install / uninstall subcommands ───────────────────────────────────────
+	installCmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install OpenTalon as a system service",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mode, _ := cmd.Flags().GetString("mode")
+			return installService(mode)
+		},
+	}
+
+	uninstallCmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall the OpenTalon system service",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mode, _ := cmd.Flags().GetString("mode")
+			return uninstallService(mode)
+		},
+	}
+
+	installCmd.Flags().String("mode", "server", "Which role to install as: server or agent")
+	uninstallCmd.Flags().String("mode", "server", "Which role to uninstall: server or agent")
+
+	root.AddCommand(serverCmd, agentCmd, versionCmd, installCmd, uninstallCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -222,6 +291,146 @@ func containsPort(addr string) bool {
 		}
 	}
 	return false
+}
+
+// installService installs OpenTalon as a system service in the given mode
+// ("server" or "agent"). On Windows it creates a Windows service; on Linux it
+// prefers systemd and falls back to OpenRC when available.
+func installService(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = "server"
+	}
+	if mode != "server" && mode != "agent" {
+		return fmt.Errorf("invalid mode %q (must be \"server\" or \"agent\")", mode)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("determining executable path: %w", err)
+	}
+	exe, err = filepath.Abs(exe)
+	if err != nil {
+		return fmt.Errorf("resolving executable path: %w", err)
+	}
+
+	serviceName := "OpenTalon"
+	if mode == "agent" {
+		serviceName = "OpenTalonAgent"
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		// sc create OpenTalon[Agent] binPath= "\"C:\path\opentalon.exe\" server|agent" start= auto
+		cmd := exec.Command("sc", "create", serviceName,
+			"binPath=", fmt.Sprintf("\"%s\" %s", exe, mode),
+			"start=", "auto")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("creating Windows service: %v\n%s", err, string(out))
+		}
+		return nil
+	case "linux":
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			unitName := "opentalon-" + mode + ".service"
+			desc := "OpenTalon " + strings.Title(mode)
+			unit := fmt.Sprintf(`[Unit]
+Description=%s
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%s %s
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+`, desc, exe, mode)
+			unitPath := filepath.Join("/etc/systemd/system", unitName)
+			if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
+				return fmt.Errorf("writing systemd unit: %w", err)
+			}
+			if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
+				return fmt.Errorf("systemctl daemon-reload: %v\n%s", err, string(out))
+			}
+			if out, err := exec.Command("systemctl", "enable", "--now", unitName).CombinedOutput(); err != nil {
+				return fmt.Errorf("systemctl enable --now %s: %v\n%s", unitName, err, string(out))
+			}
+			return nil
+		}
+		// Try OpenRC (rc-service)
+		if _, err := exec.LookPath("rc-service"); err == nil {
+			scriptName := "opentalon-" + mode
+			script := fmt.Sprintf(`#!/sbin/openrc-run
+command="%s"
+command_args="%s"
+name="OpenTalon %s"
+description="OpenTalon %s service"
+`, exe, mode, mode, mode)
+			scriptPath := filepath.Join("/etc/init.d", scriptName)
+			if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+				return fmt.Errorf("writing OpenRC script: %w", err)
+			}
+			if out, err := exec.Command("rc-update", "add", scriptName, "default").CombinedOutput(); err != nil {
+				return fmt.Errorf("rc-update add %s default: %v\n%s", scriptName, err, string(out))
+			}
+			if out, err := exec.Command("rc-service", scriptName, "start").CombinedOutput(); err != nil {
+				return fmt.Errorf("rc-service %s start: %v\n%s", scriptName, err, string(out))
+			}
+			return nil
+		}
+		return fmt.Errorf("unsupported Linux init system: neither systemd nor OpenRC found")
+	default:
+		return fmt.Errorf("service install not implemented for %s; please run 'opentalon server' via your init system", runtime.GOOS)
+	}
+}
+
+// uninstallService removes the previously installed OpenTalon service in the
+// given mode ("server" or "agent").
+func uninstallService(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = "server"
+	}
+	if mode != "server" && mode != "agent" {
+		return fmt.Errorf("invalid mode %q (must be \"server\" or \"agent\")", mode)
+	}
+
+	serviceName := "OpenTalon"
+	if mode == "agent" {
+		serviceName = "OpenTalonAgent"
+	}
+	switch runtime.GOOS {
+	case "windows":
+		cmd := exec.Command("sc", "delete", serviceName)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("deleting Windows service: %v\n%s", err, string(out))
+		}
+		return nil
+	case "linux":
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			unitName := "opentalon-" + mode + ".service"
+			unitPath := filepath.Join("/etc/systemd/system", unitName)
+			exec.Command("systemctl", "disable", "--now", unitName).Run() // best-effort
+			_ = os.Remove(unitPath)
+			if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
+				return fmt.Errorf("systemctl daemon-reload: %v\n%s", err, string(out))
+			}
+			return nil
+		}
+		if _, err := exec.LookPath("rc-service"); err == nil {
+			scriptName := "opentalon-" + mode
+			scriptPath := filepath.Join("/etc/init.d", scriptName)
+			exec.Command("rc-service", scriptName, "stop").Run()
+			exec.Command("rc-update", "del", scriptName, "default").Run()
+			_ = os.Remove(scriptPath)
+			return nil
+		}
+		return fmt.Errorf("unsupported Linux init system: neither systemd nor OpenRC found")
+	default:
+		return fmt.Errorf("service uninstall not implemented for %s", runtime.GOOS)
+	}
 }
 
 // runServerScan 由本机执行 ARP 扫描。autoAdopt: true=结果直接纳管进拓扑，false=仅进“已发现设备”列表。
