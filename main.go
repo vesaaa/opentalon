@@ -441,6 +441,8 @@ func uninstallService(mode string) error {
 	}
 	switch runtime.GOOS {
 	case "windows":
+		// Best-effort stop before delete; sc delete does not necessarily stop a running service.
+		_ = exec.Command("sc", "stop", serviceName).Run()
 		cmd := exec.Command("sc", "delete", serviceName)
 		out, err := cmd.CombinedOutput()
 		if err != nil {

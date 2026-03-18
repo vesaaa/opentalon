@@ -8,7 +8,7 @@ usage() {
 Usage:
   $0 <server|agent> [--version vX.Y.Z]   # 安装并注册为服务（向后兼容）
   $0 install <server|agent> [--version vX.Y.Z]
-  $0 uninstall <server|agent>            # 仅卸载服务，不删除二进制
+  $0 uninstall [server|agent]            # 卸载服务（默认同时卸载 server+agent），不删除二进制
 
 Examples:
   # 安装最新版本的 Server 并注册为系统服务
@@ -19,6 +19,9 @@ Examples:
 
   # 卸载 Server 服务
   curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s uninstall server
+
+  # 一键卸载全部服务（server + agent）
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s uninstall
 EOF
   exit 1
 }
@@ -49,14 +52,18 @@ case "$1" in
 esac
 
 MODE="${1:-}"
-if [ -z "${MODE}" ]; then
-  usage
+if [ "${ACTION}" = "uninstall" ] && [ -z "${MODE}" ]; then
+  MODE="all"
+else
+  if [ -z "${MODE}" ]; then
+    usage
+  fi
+  case "${MODE}" in
+    server|agent) ;;
+    *) echo "Invalid mode: ${MODE}"; usage ;;
+  esac
+  shift || true
 fi
-case "${MODE}" in
-  server|agent) ;;
-  *) echo "Invalid mode: ${MODE}"; usage ;;
-esac
-shift || true
 
 VERSION="latest"
 while [ $# -gt 0 ]; do
@@ -95,7 +102,7 @@ if [ "${ACTION}" = "uninstall" ]; then
   if [ "$(id -u)" -ne 0 ]; then
     echo "This script needs root to uninstall services."
     echo "Please re-run with sudo:"
-    echo "  sudo sh $0 uninstall ${MODE}"
+    echo "  sudo sh $0 uninstall ${MODE:-}"
     exit 1
   fi
 
@@ -109,8 +116,14 @@ if [ "${ACTION}" = "uninstall" ]; then
     exit 0
   fi
 
-  echo "Unregistering ${MODE} service via '${OP} uninstall --mode ${MODE}'..."
-  "${OP}" uninstall --mode "${MODE}"
+  if [ "${MODE}" = "all" ]; then
+    echo "Unregistering services via '${OP} uninstall --mode server' and '--mode agent'..."
+    "${OP}" uninstall --mode server || true
+    "${OP}" uninstall --mode agent || true
+  else
+    echo "Unregistering ${MODE} service via '${OP} uninstall --mode ${MODE}'..."
+    "${OP}" uninstall --mode "${MODE}"
+  fi
   echo "Done."
   exit 0
 fi

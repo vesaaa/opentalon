@@ -42,6 +42,9 @@ curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/insta
 
 # 卸载 Agent 服务
 curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s uninstall agent
+
+# 一键卸载全部服务（server + agent）
+curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s uninstall
 ```
 
 #### 手动下载二进制
