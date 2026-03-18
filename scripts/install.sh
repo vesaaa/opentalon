@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 REPO="vesaaa/opentalon"
 
@@ -12,13 +12,13 @@ Usage:
 
 Examples:
   # 安装最新版本的 Server 并注册为系统服务
-  bash <(curl -L https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh) server
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s server
 
   # 安装指定版本的 Agent
-  bash <(curl -L https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh) agent --version v0.1.15
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s agent --version v0.1.15
 
   # 卸载 Server 服务
-  bash <(curl -L https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh) uninstall server
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s uninstall server
 EOF
   exit 1
 }
@@ -26,7 +26,7 @@ EOF
 ACTION="install"
 MODE=""
 
-if [[ $# -lt 1 ]]; then
+if [ $# -lt 1 ]; then
   usage
 fi
 
@@ -45,7 +45,7 @@ case "$1" in
 esac
 
 MODE="${1:-}"
-if [[ -z "${MODE}" ]]; then
+if [ -z "${MODE}" ]; then
   usage
 fi
 case "${MODE}" in
@@ -55,7 +55,7 @@ esac
 shift || true
 
 VERSION="latest"
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
   case "$1" in
     --version)
       VERSION="${2:-}"
@@ -72,7 +72,7 @@ INSTALL_DIR="/usr/local/bin"
 INSTALL_BIN="${INSTALL_DIR}/opentalon"
 
 if [[ "${ACTION}" == "uninstall" ]]; then
-  if [[ "$(id -u)" -ne 0 ]]; then
+  if [ "$(id -u)" -ne 0 ]; then
     echo "This script needs root to uninstall services."
     echo "Please re-run with sudo:"
     echo "  sudo bash $0 uninstall ${MODE}"
@@ -82,7 +82,7 @@ if [[ "${ACTION}" == "uninstall" ]]; then
   # 若 opentalon 在 PATH 中，则直接用；否则尝试 /usr/local/bin/opentalon
   if command -v opentalon >/dev/null 2>&1; then
     OP="opentalon"
-  elif [[ -x "${INSTALL_BIN}" ]]; then
+  elif [ -x "${INSTALL_BIN}" ]; then
     OP="${INSTALL_BIN}"
   else
     echo "opentalon binary not found; nothing to uninstall."
@@ -114,13 +114,13 @@ http_get() {
 detect_latest_tag() {
   http_get "https://api.github.com/repos/${REPO}/releases/latest" \
     | grep -m1 '"tag_name"' \
-    | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+    | sed -e 's/.*"tag_name": *"//' -e 's/".*//'
 }
 
-if [[ "${VERSION}" == "latest" ]]; then
+if [ "${VERSION}" = "latest" ]; then
   echo "Detecting latest release tag from GitHub..."
   VERSION="$(detect_latest_tag || true)"
-  if [[ -z "${VERSION}" ]]; then
+  if [ -z "${VERSION}" ]; then
     echo "Failed to detect latest tag; falling back to 'latest' download URLs."
     VERSION="latest"
   else
@@ -145,11 +145,8 @@ case "${UNAME_M}" in
 esac
 
 BIN_NAME="opentalon-${OS}-${ARCH}"
-if [[ "${OS}" == "windows" ]]; then
-  BIN_NAME="opentalon-windows-amd64.exe"
-fi
 
-if [[ "${VERSION}" == "latest" ]]; then
+if [ "${VERSION}" = "latest" ]; then
   URL="https://github.com/${REPO}/releases/latest/download/${BIN_NAME}"
 else
   URL="https://github.com/${REPO}/releases/download/${VERSION}/${BIN_NAME}"
@@ -162,10 +159,10 @@ TMP_BIN="$(mktemp -t opentalon.XXXXXX)"
 http_get "${URL}" > "${TMP_BIN}"
 chmod +x "${TMP_BIN}"
 
-if [[ "$(id -u)" -ne 0 ]]; then
+if [ "$(id -u)" -ne 0 ]; then
   echo "This script needs root to install to ${INSTALL_DIR} and register services."
   echo "Please re-run with sudo:"
-  echo "  sudo bash $0 install ${MODE} ${VERSION:+--version ${VERSION}}"
+  echo "  sudo sh $0 install ${MODE} ${VERSION:+--version ${VERSION}}"
   exit 1
 fi
 

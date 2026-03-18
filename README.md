@@ -28,20 +28,20 @@
 
 ```bash
 # 安装最新版本的 Server 并注册为系统服务
-bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) server
+curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s server
 
 # 安装指定版本的 Agent（例如 v0.1.15）
-bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) agent --version v0.1.15
+curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s agent --version v0.1.15
 ```
 
 #### 卸载（服务保留二进制）
 
 ```bash
 # 卸载 Server 服务
-bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) uninstall server
+curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s uninstall server
 
 # 卸载 Agent 服务
-bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) uninstall agent
+curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s uninstall agent
 ```
 
 #### 手动下载二进制
