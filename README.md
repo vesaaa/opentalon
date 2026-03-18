@@ -18,7 +18,6 @@
 | **网关自动推导** | Agent 上报本机 IP + 默认网关，Server 自动建立父子拓扑连线 |
 | **AntV G6 拓扑图** | 可拖拽节点，箭头连线，点击节点弹出实时 Metrics 抽屉 |
 | **跨平台 Agent** | 支持 Linux / Windows / macOS，采集 CPU/内存/磁盘/TCP/UDP/带宽 |
-| **SSH 兜底** | 对无法部署 Agent 的设备（路由器等）提供 SSH 批量运维能力 |
 
 ## 🚀 快速开始
 
@@ -111,7 +110,6 @@ opentalon/
 │   └── server/
 │       ├── db.go              # GORM + SQLite + 自动父子推导
 │       ├── api.go             # Gin RESTful API
-│       ├── ssh.go             # SSH 兜底运维模块
 │       └── embed.go           # go:embed 静态文件
 └── web/
     ├── index.html             # Vue 3 + AntV G6 看板
@@ -179,14 +177,6 @@ make all
 | `POST` | `/api/metrics` | Agent 上报指标 |
 | `GET`  | `/api/devices/:id/metrics` | 获取某设备最新指标 |
 | `GET`  | `/api/health` | 健康检查 |
-
-## 🔑 SSH 运维任务
-
-对无法部署 Agent 的设备，通过 SSH 执行预置任务：
-
-- **`FixRPFilter`** — RockyLinux 路由黑洞修复（tun + enp6s18 的 rp_filter=0）
-- **`UpdateFNOSScript`** — 更新 fnos_fix 脚本（自动跳过 V5.0 旧版本）
-- **`PushSingBoxConfig`** — 推送 sing-box 1.12.16 配置至旁路由并重启（使用 `hosts.predefined` 语法）
 
 ## 📋 适配的异构系统
 
