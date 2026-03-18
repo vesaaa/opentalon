@@ -19,10 +19,6 @@ agent_token: "opentalon-secret-key-123"             # Agent 预共享密钥
 admin_user:  "admin"
 admin_pass:  "admin"   # 生产环境请修改！
 
-# ── Network ──────────────────────────────────────────────────────────────────
-main_router_ip: "192.168.1.1"
-side_router_ip: "192.168.1.2"
-
 # ── Agent ────────────────────────────────────────────────────────────────────
 agent_join_addr:         "192.168.1.1:1616"   # Server 数据面地址
 agent_interval_seconds:  30                    # 上报间隔（秒）

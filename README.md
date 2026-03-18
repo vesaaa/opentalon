@@ -140,9 +140,6 @@ agent_token:           "opentalon-secret-key-123"
 admin_user:            "admin"
 admin_pass:            "admin"
 
-main_router_ip:        "192.168.1.1"
-side_router_ip:        "192.168.1.2"
-
 agent_join_addr:       "127.0.0.1:1616"
 agent_interval_seconds: 30
 agent_group:           "default"

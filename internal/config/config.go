@@ -39,10 +39,6 @@ type Config struct {
 	AdminUser string `mapstructure:"admin_user"`
 	AdminPass string `mapstructure:"admin_pass"`
 
-	// ── Network topology hints ────────────────────────────────────────────────
-	MainRouterIP string `mapstructure:"main_router_ip"`
-	SideRouterIP string `mapstructure:"side_router_ip"`
-
 	// ── Agent ────────────────────────────────────────────────────────────────
 	AgentJoinAddr    string `mapstructure:"agent_join_addr"`
 	AgentInterval    int    `mapstructure:"agent_interval_seconds"`
@@ -85,9 +81,6 @@ func Load() (*Config, error) {
 	v.SetDefault("agent_token", "opentalon-secret-key-123")
 	v.SetDefault("admin_user", "admin")
 	v.SetDefault("admin_pass", "admin")
-
-	v.SetDefault("main_router_ip", "192.168.1.1")
-	v.SetDefault("side_router_ip", "192.168.1.2")
 
 	v.SetDefault("agent_join_addr", "127.0.0.1:1616")
 	v.SetDefault("agent_interval_seconds", 30)
