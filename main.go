@@ -361,12 +361,18 @@ WantedBy=multi-user.target
 		// Try OpenRC (rc-service)
 		if _, err := exec.LookPath("rc-service"); err == nil {
 			scriptName := "opentalon-" + mode
+			// IMPORTANT: without command_background=true, rc-service start will block
+			// by running the command in foreground (common in Alpine/OpenRC).
+			// Use a pidfile so OpenRC can manage the daemon lifecycle.
+			pidfile := filepath.Join("/run", scriptName+".pid")
 			script := fmt.Sprintf(`#!/sbin/openrc-run
 command="%s"
 command_args="%s"
+command_background="yes"
+pidfile="%s"
 name="OpenTalon %s"
 description="OpenTalon %s service"
-`, exe, mode, mode, mode)
+`, exe, mode, pidfile, mode, mode)
 			scriptPath := filepath.Join("/etc/init.d", scriptName)
 			if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 				return fmt.Errorf("writing OpenRC script: %w", err)
@@ -374,7 +380,13 @@ description="OpenTalon %s service"
 			if out, err := exec.Command("rc-update", "add", scriptName, "default").CombinedOutput(); err != nil {
 				return fmt.Errorf("rc-update add %s default: %v\n%s", scriptName, err, string(out))
 			}
-			if out, err := exec.Command("rc-service", scriptName, "start").CombinedOutput(); err != nil {
+			// rc-service can block if OpenRC isn't running; keep a timeout to avoid hanging the installer.
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			if out, err := exec.CommandContext(ctx, "rc-service", scriptName, "start").CombinedOutput(); err != nil {
+				if ctx.Err() == context.DeadlineExceeded {
+					return fmt.Errorf("rc-service %s start timed out (is OpenRC running?)", scriptName)
+				}
 				return fmt.Errorf("rc-service %s start: %v\n%s", scriptName, err, string(out))
 			}
 			return nil
