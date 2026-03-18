@@ -34,6 +34,16 @@ bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/i
 bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) agent --version v0.1.15
 ```
 
+#### 卸载（服务保留二进制）
+
+```bash
+# 卸载 Server 服务
+bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) uninstall server
+
+# 卸载 Agent 服务
+bash <(curl -L https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh) uninstall agent
+```
+
 #### 手动下载二进制
 
 ```bash
