@@ -1,7 +1,7 @@
 APP     := opentalon
 MODULE  := github.com/vesaa/opentalon
 VERSION := v0.1.0
-LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION)"
+LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION) -X github.com/vesaa/opentalon/internal/agent.agentVersion=$(VERSION)"
 DIST    := dist
 
 .PHONY: all build tidy ui clean distdir linux windows arm64 armv7 alpine darwin darwin-arm64

@@ -35,7 +35,8 @@ const asciiLogo = `
   ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝
 `
 
-const version = "v0.1.0"
+// version is set at build time via -ldflags "-X main.version=...".
+var version = "dev"
 
 func printBanner(mode string) {
 	fmt.Print(asciiLogo)

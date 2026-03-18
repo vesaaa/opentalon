@@ -46,7 +46,8 @@ type MetricsPayload struct {
 	UDPConnections int     `json:"udp_connections"`
 }
 
-const agentVersion = "v0.1.0"
+// agentVersion is set at build time via -ldflags "-X github.com/vesaa/opentalon/internal/agent.agentVersion=...".
+var agentVersion = "dev"
 
 // Run starts the agent main loop. It registers with the server data-plane, then
 // periodically collects and posts metrics.
