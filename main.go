@@ -257,7 +257,11 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 		Short: "Install OpenTalon as a system service",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode, _ := cmd.Flags().GetString("mode")
-			return installService(mode)
+			join, _ := cmd.Flags().GetString("join")
+			token, _ := cmd.Flags().GetString("token")
+			group, _ := cmd.Flags().GetString("group")
+			parent, _ := cmd.Flags().GetUint("parent")
+			return installService(mode, join, token, group, parent)
 		},
 	}
 
@@ -272,6 +276,10 @@ network devices: Windows, Alpine, Debian/FNOS, PVE, RockyLinux, routers and more
 
 	installCmd.Flags().String("mode", "server", "Which role to install as: server or agent")
 	uninstallCmd.Flags().String("mode", "server", "Which role to uninstall: server or agent")
+	installCmd.Flags().String("join", "", "Agent join address, e.g. 192.168.1.1:1616 (required when --mode agent)")
+	installCmd.Flags().String("token", "", "Agent token (required when --mode agent)")
+	installCmd.Flags().String("group", "", "Agent group name (optional when --mode agent)")
+	installCmd.Flags().Uint("parent", 0, "Agent parent device ID (optional when --mode agent)")
 
 	root.AddCommand(serverCmd, agentCmd, versionCmd, installCmd, uninstallCmd)
 
@@ -296,13 +304,18 @@ func containsPort(addr string) bool {
 // installService installs OpenTalon as a system service in the given mode
 // ("server" or "agent"). On Windows it creates a Windows service; on Linux it
 // prefers systemd and falls back to OpenRC when available.
-func installService(mode string) error {
+func installService(mode, join, token, group string, parent uint) error {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
 		mode = "server"
 	}
 	if mode != "server" && mode != "agent" {
 		return fmt.Errorf("invalid mode %q (must be \"server\" or \"agent\")", mode)
+	}
+	if mode == "agent" {
+		if strings.TrimSpace(join) == "" || strings.TrimSpace(token) == "" {
+			return fmt.Errorf("agent install requires --join and --token")
+		}
 	}
 
 	exe, err := os.Executable()
@@ -319,11 +332,23 @@ func installService(mode string) error {
 		serviceName = "OpenTalonAgent"
 	}
 
+	// Build command-line args for the service.
+	args := mode
+	if mode == "agent" {
+		args = fmt.Sprintf(`agent --join %q --token %q`, strings.TrimSpace(join), strings.TrimSpace(token))
+		if strings.TrimSpace(group) != "" {
+			args += fmt.Sprintf(` --group %q`, strings.TrimSpace(group))
+		}
+		if parent != 0 {
+			args += fmt.Sprintf(` --parent %d`, parent)
+		}
+	}
+
 	switch runtime.GOOS {
 	case "windows":
 		// sc create OpenTalon[Agent] binPath= "\"C:\path\opentalon.exe\" server|agent" start= auto
 		cmd := exec.Command("sc", "create", serviceName,
-			"binPath=", fmt.Sprintf("\"%s\" %s", exe, mode),
+			"binPath=", fmt.Sprintf("\"%s\" %s", exe, args),
 			"start=", "auto")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -345,7 +370,7 @@ Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-`, desc, exe, mode)
+`, desc, exe, args)
 			unitPath := filepath.Join("/etc/systemd/system", unitName)
 			if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
 				return fmt.Errorf("writing systemd unit: %w", err)
@@ -365,6 +390,7 @@ WantedBy=multi-user.target
 			// by running the command in foreground (common in Alpine/OpenRC).
 			// Use a pidfile so OpenRC can manage the daemon lifecycle.
 			pidfile := filepath.Join("/run", scriptName+".pid")
+			openrcArgs := strings.ReplaceAll(args, `"`, `\"`)
 			script := fmt.Sprintf(`#!/sbin/openrc-run
 command="%s"
 command_args="%s"
@@ -372,7 +398,7 @@ command_background="yes"
 pidfile="%s"
 name="OpenTalon %s"
 description="OpenTalon %s service"
-`, exe, mode, pidfile, mode, mode)
+`, exe, openrcArgs, pidfile, mode, mode)
 			scriptPath := filepath.Join("/etc/init.d", scriptName)
 			if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 				return fmt.Errorf("writing OpenRC script: %w", err)

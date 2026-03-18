@@ -14,8 +14,8 @@ Examples:
   # 安装最新版本的 Server 并注册为系统服务
   curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s server
 
-  # 安装指定版本的 Agent
-  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s agent --version v0.1.15
+  # 安装指定版本的 Agent（必须指定 join/token）
+  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s agent --version v0.1.18 --join 192.168.1.1:1616 --token opentalon-secret-key-123
 
   # 卸载 Server 服务
   curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sh -s uninstall server
@@ -25,6 +25,10 @@ EOF
 
 ACTION="install"
 MODE=""
+JOIN=""
+TOKEN=""
+GROUP=""
+PARENT=""
 
 if [ $# -lt 1 ]; then
   usage
@@ -61,6 +65,22 @@ while [ $# -gt 0 ]; do
       VERSION="${2:-}"
       shift 2 || true
       ;;
+    --join)
+      JOIN="${2:-}"
+      shift 2 || true
+      ;;
+    --token)
+      TOKEN="${2:-}"
+      shift 2 || true
+      ;;
+    --group)
+      GROUP="${2:-}"
+      shift 2 || true
+      ;;
+    --parent)
+      PARENT="${2:-}"
+      shift 2 || true
+      ;;
     *)
       echo "Unknown argument: $1"
       usage
@@ -71,11 +91,11 @@ done
 INSTALL_DIR="/usr/local/bin"
 INSTALL_BIN="${INSTALL_DIR}/opentalon"
 
-if [[ "${ACTION}" == "uninstall" ]]; then
+if [ "${ACTION}" = "uninstall" ]; then
   if [ "$(id -u)" -ne 0 ]; then
     echo "This script needs root to uninstall services."
     echo "Please re-run with sudo:"
-    echo "  sudo bash $0 uninstall ${MODE}"
+    echo "  sudo sh $0 uninstall ${MODE}"
     exit 1
   fi
 
@@ -93,6 +113,13 @@ if [[ "${ACTION}" == "uninstall" ]]; then
   "${OP}" uninstall --mode "${MODE}"
   echo "Done."
   exit 0
+fi
+
+if [ "${MODE}" = "agent" ]; then
+  if [ -z "${JOIN}" ] || [ -z "${TOKEN}" ]; then
+    echo "Agent install requires: --join <server:1616> --token <agent_token>"
+    usage
+  fi
 fi
 
 need_cmd() {
@@ -162,7 +189,7 @@ chmod +x "${TMP_BIN}"
 if [ "$(id -u)" -ne 0 ]; then
   echo "This script needs root to install to ${INSTALL_DIR} and register services."
   echo "Please re-run with sudo:"
-  echo "  sudo sh $0 install ${MODE} ${VERSION:+--version ${VERSION}}"
+  echo "  sudo sh $0 install ${MODE} ${VERSION:+--version ${VERSION}} ${JOIN:+--join ${JOIN}} ${TOKEN:+--token ${TOKEN}}"
   exit 1
 fi
 
@@ -170,8 +197,20 @@ mkdir -p "${INSTALL_DIR}"
 mv "${TMP_BIN}" "${INSTALL_BIN}"
 echo "Installed opentalon to ${INSTALL_BIN}"
 
-echo "Registering ${MODE} service via 'opentalon install --mode ${MODE}'..."
-"${INSTALL_BIN}" install --mode "${MODE}"
+INSTALL_ARGS="install --mode ${MODE}"
+if [ "${MODE}" = "agent" ]; then
+  INSTALL_ARGS="${INSTALL_ARGS} --join ${JOIN} --token ${TOKEN}"
+  if [ -n "${GROUP}" ]; then
+    INSTALL_ARGS="${INSTALL_ARGS} --group ${GROUP}"
+  fi
+  if [ -n "${PARENT}" ]; then
+    INSTALL_ARGS="${INSTALL_ARGS} --parent ${PARENT}"
+  fi
+fi
+
+echo "Registering ${MODE} service via 'opentalon ${INSTALL_ARGS}'..."
+# shellcheck disable=SC2086
+"${INSTALL_BIN}" ${INSTALL_ARGS}
 
 echo "Done."
 

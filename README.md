@@ -30,8 +30,8 @@
 # 安装最新版本的 Server 并注册为系统服务
 curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s server
 
-# 安装指定版本的 Agent（例如 v0.1.15）
-curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s agent --version v0.1.15
+# 安装指定版本的 Agent（必须指定 join/token）
+curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s agent --version v0.1.18 --join 192.168.1.1:1616 --token opentalon-secret-key-123
 ```
 
 #### 卸载（服务保留二进制）
