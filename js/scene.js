@@ -32,7 +32,7 @@
   let hemi, sun, groundMat, lawnMat, cityMat, glowMat, poolMat, starMat, beamMat, rain, snow;
   const hitBoxes = [];
   let floorMode = 'all';
-  const floorMats = {}, see = { ground: true, b1: true, b2: true };
+  const floorMats = {}, see = { ground: false, b1: true, b2: true };
 
   const orbit = (PT.orbit = { target: new T.Vector3(0, -3, 10), r: 185, theta: 0.62, phi: 0.98, tween: null });
   PT.HOME = { target: new T.Vector3(0, -3, 10), r: 185, theta: 0.62, phi: 0.98 };
@@ -48,6 +48,7 @@
   function edges(mesh, color, opacity) {
     const e = new T.LineSegments(new T.EdgesGeometry(mesh.geometry),
       new T.LineBasicMaterial({ color, transparent: true, opacity }));
+    e.renderOrder = 8;
     mesh.add(e);
     return e;
   }
@@ -68,6 +69,8 @@
     const g = new T.BufferGeometry();
     g.setAttribute('position', new T.Float32BufferAttribute(arr, 3));
     const l = new T.LineSegments(g, new T.LineBasicMaterial({ color, transparent: true, opacity }));
+    // 地表的线要在地面之后绘制，否则会在地面上留下能看穿到地库的细缝
+    if (parent === gSurface) l.renderOrder = 8;
     parent.add(l);
     return l;
   }
@@ -127,6 +130,7 @@
     buildLevel(C.Y1, gB1, 1, 'B1');
     buildLevel(C.Y2, gB2, 2, 'B2');
     buildRamps();
+    PT.setSee('ground', false);
     buildLampsAndCity();
     buildWeather();
     initCarAssets();
@@ -232,12 +236,20 @@
   /* ---------- 地面、道路、绿化 ---------- */
   function buildGround() {
     groundMat = new T.MeshStandardMaterial({ map: TEX.paving, transparent: true, opacity: 0.5, depthWrite: false, roughness: 0.95 });
-    flat(300, 300, groundMat, 0, 0, 0, 6, 3);
+    // 地面在两侧坡道上方留出洞口，地面不透视时车辆仍能看着驶入地库
+    const shape = new T.Shape([new T.Vector2(-150, -150), new T.Vector2(150, -150), new T.Vector2(150, 150), new T.Vector2(-150, 150)]);
+    for (const sx of [-1, 1]) {
+      const a = sx * 34, b = sx * 42;
+      shape.holes.push(new T.Path([new T.Vector2(a, -30), new T.Vector2(b, -30), new T.Vector2(b, -12.4), new T.Vector2(a, -12.4)]));
+    }
+    const gg = new T.ShapeGeometry(shape); planeUV(gg, 1 / 6, 1 / 6);
+    const ground = new T.Mesh(gg, groundMat);
+    ground.rotation.x = -Math.PI / 2; ground.renderOrder = 3; gSurface.add(ground);
     const grid = new T.GridHelper(300, 60, 0x3b86d6, 0x215089);
-    grid.material.transparent = true; grid.material.opacity = 0.12; grid.position.y = 0.02;
+    grid.material.transparent = true; grid.material.opacity = 0.12; grid.position.y = 0.02; grid.renderOrder = 8;
     gSurface.add(grid);
 
-    const roadMat = new T.MeshStandardMaterial({ map: TEX.asphalt, transparent: true, opacity: 0.95, depthWrite: false, roughness: 0.9 });
+    const roadMat = new T.MeshStandardMaterial({ map: TEX.asphalt, transparent: true, opacity: 1, depthWrite: false, roughness: 0.9 });
     flat(300, 12, roadMat, 0, 0.03, 54, 8, 4);
     for (const sx of [-38, 38]) flat(8.6, 18, roadMat, sx, 0.03, 39, 8, 4);
 
@@ -382,7 +394,7 @@
   };
 
   function buildRamps() {
-    const rm = new T.MeshStandardMaterial({ color: 0x1f6fb5, transparent: true, opacity: 0.45, side: T.DoubleSide, depthWrite: false });
+    const rm = new T.MeshStandardMaterial({ color: 0x56626f, transparent: true, opacity: 0.88, side: T.DoubleSide, depthWrite: false });
     for (const sx of [-1, 1]) {
       // 地面 → B1
       quad([sx * 34, 0, 30], [sx * 42, 0, 30], [sx * 42, C.Y1, 12], [sx * 34, C.Y1, 12], rm, gB1, 0x7fe0ff);
@@ -403,8 +415,8 @@
     const poolGeo = new T.PlaneGeometry(22, 22); poolGeo.rotateX(-Math.PI / 2);
     for (let x = -130; x <= 130; x += 20) {
       box(0.25, 7, 0.25, poleMat, x, 3.5, 47, gSurface);
-      const s = new T.Sprite(glowMat); s.scale.set(5, 5, 1); s.position.set(x, 7.2, 47); gSurface.add(s);
-      const p = new T.Mesh(poolGeo, poolMat); p.position.set(x, 0.09, 50); gSurface.add(p);
+      const s = new T.Sprite(glowMat); s.scale.set(5, 5, 1); s.position.set(x, 7.2, 47); s.renderOrder = 8; gSurface.add(s);
+      const p = new T.Mesh(poolGeo, poolMat); p.position.set(x, 0.09, 50); p.renderOrder = 8; gSurface.add(p);
     }
     cityMat = [0xffffff, 0xe2d6c6, 0xc6d6e8].map((c) => new T.MeshStandardMaterial({ map: TEX.city, color: c, emissive: 0xffffff, emissiveMap: TEX.cityLit, emissiveIntensity: 0, roughness: 0.85 }));
     const cityRoof = new T.MeshStandardMaterial({ map: TEX.concrete, roughness: 0.95 });
@@ -435,13 +447,13 @@
     }
     const rg = new T.BufferGeometry(); rg.setAttribute('position', new T.BufferAttribute(rp, 3));
     rain = new T.LineSegments(rg, new T.LineBasicMaterial({ color: 0xa9cdff, transparent: true, opacity: 0, depthWrite: false }));
-    rain.frustumCulled = false; rain.visible = false; scene.add(rain);
+    rain.renderOrder = 60; rain.frustumCulled = false; rain.visible = false; scene.add(rain);
 
     const NS = 4000, spos = new Float32Array(NS * 3);
     for (let i = 0; i < NS; i++) spos.set([(Math.random() - 0.5) * 280, Math.random() * 110 - 12, (Math.random() - 0.5) * 240], i * 3);
     const sg = new T.BufferGeometry(); sg.setAttribute('position', new T.BufferAttribute(spos, 3));
     snow = new T.Points(sg, new T.PointsMaterial({ map: glowTex, color: 0xffffff, size: 1.5, transparent: true, opacity: 0, depthWrite: false }));
-    snow.frustumCulled = false; snow.visible = false; scene.add(snow);
+    snow.renderOrder = 60; snow.frustumCulled = false; snow.visible = false; scene.add(snow);
   }
   function updateWeather(dt, t) {
     if (env.wr > 0.01) {
@@ -496,10 +508,12 @@
   // 逐层透视开关：关闭后该层楼板变为不透明，遮住下方楼层
   PT.setSee = function (layer, on) {
     see[layer] = on;
-    groundMat.opacity = see.ground ? 0.5 : 0.97;
-    lawnMat.opacity = see.ground ? 0.6 : 0.97;
-    floorMats.b1.opacity = see.b1 ? 0.62 : 0.97;
-    floorMats.b2.opacity = see.b2 ? 0.62 : 0.97;
+    groundMat.opacity = see.ground ? 0.5 : 1;
+    lawnMat.opacity = see.ground ? 0.6 : 1;
+    floorMats.b1.opacity = see.b1 ? 0.62 : 1;
+    floorMats.b2.opacity = see.b2 ? 0.62 : 1;
+    // 不透视的楼板写入深度，彻底挡住下方的车辆、线条和灯光
+    groundMat.depthWrite = !see.ground; floorMats.b1.depthWrite = !see.b1; floorMats.b2.depthWrite = !see.b2;
   };
   PT.getSee = () => see;
   PT.getFloorMode = () => floorMode;
@@ -532,7 +546,7 @@
     const cab = new T.Mesh(carGeo.cab, carMat.cab); cab.position.set(0, 1.06, -0.25);
     const f = new T.Mesh(carGeo.lamp, carMat.front); f.position.set(0, 0.56, 2.21);
     const r = new T.Mesh(carGeo.lamp, carMat.rear); r.position.set(0, 0.56, -2.21);
-    const beam = new T.Mesh(carGeo.beam, beamMat); beam.position.y = 0.5;
+    const beam = new T.Mesh(carGeo.beam, beamMat); beam.position.y = 0.5; beam.renderOrder = 8;
     g.add(body, cab, f, r, beam);
     g.userData.body = body; g.userData.baseMat = body.material;
     return g;
@@ -564,10 +578,10 @@
     const alarm = new T.Group(); alarm.position.set(gate.x, 0, stopZ); alarm.visible = false; gSurface.add(alarm);
     const ring = new T.Mesh(new T.RingGeometry(3.4, 4.1, 48),
       new T.MeshBasicMaterial({ color: 0xff3048, transparent: true, opacity: 0.9, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending }));
-    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.12; alarm.add(ring);
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.12; ring.renderOrder = 8; alarm.add(ring);
     const beam = new T.Mesh(new T.CylinderGeometry(3.2, 3.2, 16, 32, 1, true),
       new T.MeshBasicMaterial({ color: 0xff3048, transparent: true, opacity: 0.14, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending }));
-    beam.position.y = 8; alarm.add(beam);
+    beam.position.y = 8; beam.renderOrder = 8; alarm.add(beam);
 
     const hit = new T.Mesh(new T.BoxGeometry(4.4, 9, 9), new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
     hit.position.set(gate.x, 4, z); hit.userData.gate = gate.id; gSurface.add(hit); hitBoxes.push(hit);
