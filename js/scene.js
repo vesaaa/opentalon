@@ -431,20 +431,21 @@
     grp.add(shell);
 
     // 车位线 + 占用指示灯
-    const sl = [];
+    const sl = [], slEv = [];   // 普通车位线 / 充电车位线（绿色）
     const slots = PT.SLOTS.filter((s) => s.level === level);
     const lights = new T.InstancedMesh(new T.BoxGeometry(1.4, 0.08, 0.35), new T.MeshBasicMaterial(), slots.length);
     const m4 = new T.Matrix4(), free = new T.Color(0x3ddc97);
     slots.forEach((s, i) => {
       const x0 = s.x - 1.3, x1 = s.x + 1.3, zb = s.z + Math.sign(s.z - s.aisleZ) * 2.5, zf = s.z - Math.sign(s.z - s.aisleZ) * 2.5;
-      sl.push(x0, y + 0.04, zf, x0, y + 0.04, zb, x1, y + 0.04, zf, x1, y + 0.04, zb, x0, y + 0.04, zb, x1, y + 0.04, zb);
+      (s.charger ? slEv : sl).push(x0, y + 0.04, zf, x0, y + 0.04, zb, x1, y + 0.04, zf, x1, y + 0.04, zb, x0, y + 0.04, zb, x1, y + 0.04, zb);
       m4.makeTranslation(s.x, y + 0.06, zf);
       lights.setMatrixAt(i, m4); lights.setColorAt(i, free);
       s.light = lights; s.lightIdx = i;
     });
     lights.instanceColor.needsUpdate = true;
     grp.add(lights);
-    lineSegs(sl, 0x3aa0ff, 0.5, grp);
+    lineSegs(sl, 0xe6ecf2, 0.75, grp);
+    lineSegs(slEv, 0x35d07f, 0.95, grp);
 
     // 立柱
     const colMat = new T.MeshStandardMaterial({ color: 0x2a5d94, transparent: true, opacity: 0.55 });
@@ -538,11 +539,6 @@
     sign.tex.needsUpdate = true;
     sign.sp.position.set(0, 7, 34); gSurface.add(sign.sp);
   }
-  PT.addFlowLine = function (pts, level) {
-    const g = new T.BufferGeometry().setFromPoints(pts.map((p) => new T.Vector3(p.x, p.y + 0.07, p.z)));
-    (level === 1 ? gB1 : gB2).add(new T.Line(g, new T.LineBasicMaterial({ color: level === 1 ? 0x4cc9ff : 0x9d8cff, transparent: true, opacity: 0.28 })));
-  };
-
   /* ---------- 路灯、周边体块、星空 ---------- */
   function buildLampsAndCity() {
     glowMat = new T.SpriteMaterial({ map: glowTex, color: 0xffe2a6, transparent: true, opacity: 0, blending: T.AdditiveBlending, depthWrite: false });

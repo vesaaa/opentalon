@@ -519,7 +519,7 @@
   sim.init = function () {
     C.IN.forEach((x, i) => makeGate('I' + (i + 1), '入口 ' + (i + 1), 'in', x, i === 2));
     C.OUT.forEach((x, i) => makeGate('O' + (i + 1), '出口 ' + (i + 1), 'out', x, i === 2));
-    for (const lv of [1, 2]) PT.addFlowLine(new Path(surfaceIn(C.RING).concat(loop(lv), surfaceOut, [V(-C.RING, 0, C.ROAD_Z), V(-125, 0, C.ROAD_Z)])).pts, lv);
+
     for (let i = 0; i < 56; i++) {
       const ev = Math.random() < 0.35, s = pickSlot(ev);
       const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', s, ev);
@@ -594,7 +594,7 @@
   };
   sim.feeNow = calcFee;
   sim.hazards = []; sim.closed = {};
-  sim._ = { rand, log, board, startCharge, endCharge, blinkSlots };   // 供场内事件模块使用
+  sim._ = { rand, log, board, startCharge, endCharge, blinkSlots, routes: { loop } };   // 供场内事件模块使用
   sim.selCar = null;
   sim.freeSlots = (level) => PT.SLOTS.filter((s) => s.level === level && !s.car).length;
 })();

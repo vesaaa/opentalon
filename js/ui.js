@@ -11,6 +11,7 @@
 
   PT.initScene($('view'));
   sim.init();
+  PT.buildMarkings();
 
   /* ---------- 日志 ---------- */
   const logEl = $('logList');
