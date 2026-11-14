@@ -462,14 +462,17 @@
     for (const sx of [-1, 1]) for (const wz of [-28.78, 12.78]) box(24, 3.2, 0.3, wallMat, sx * 19.2, y + 1.6, wz, grp);
     const cBody = new T.InstancedMesh(new T.BoxGeometry(0.5, 1.5, 0.32), new T.MeshStandardMaterial({ color: 0xe6edf5, roughness: 0.5 }), ch.length);
     const cLight = new T.InstancedMesh(new T.BoxGeometry(0.36, 0.55, 0.08), new T.MeshBasicMaterial(), ch.length);
+    // 桩顶状态灯：绿 = 空闲无车，红 = 充电中，黄 = 有车未充电
+    const cLamp = new T.InstancedMesh(new T.SphereGeometry(0.3, 12, 8), new T.MeshBasicMaterial(), ch.length);
     ch.forEach((s, i) => {
       const d = Math.sign(s.z - s.aisleZ), hz = s.z + d * 2.95;
       m4.makeTranslation(s.x, y + 0.75, hz); cBody.setMatrixAt(i, m4);
-      m4.makeTranslation(s.x, y + 1.05, hz - d * 0.18); cLight.setMatrixAt(i, m4); cLight.setColorAt(i, CH_COL.idle);
-      s.cLight = cLight; s.cIdx = i;
+      m4.makeTranslation(s.x, y + 1.05, hz - d * 0.18); cLight.setMatrixAt(i, m4); cLight.setColorAt(i, CH_COL.free);
+      m4.makeTranslation(s.x, y + 1.78, hz); cLamp.setMatrixAt(i, m4); cLamp.setColorAt(i, CH_COL.free);
+      s.cLight = cLight; s.cLamp = cLamp; s.cIdx = i;
     });
-    cLight.instanceColor.needsUpdate = true;
-    grp.add(cBody, cLight);
+    cLight.instanceColor.needsUpdate = cLamp.instanceColor.needsUpdate = true;
+    grp.add(cBody, cLight, cLamp);
 
     const core = box(4, 4.6, 16, new T.MeshStandardMaterial({ color: 0x1b4472, transparent: true, opacity: 0.75 }), 0, y + 2.3, -8, grp);
     edges(core, 0x7fe0ff, 0.9);
@@ -479,10 +482,10 @@
     lb.ctx.fillStyle = '#7fe0ff'; lb.ctx.fillText(name, 64, 34); lb.tex.needsUpdate = true;
     lb.sp.position.set(-53, y + 2.5, 34); grp.add(lb.sp);
   }
-  const CH_COL = { idle: new T.Color(0x2d6a55), on: new T.Color(0x35e0ff), full: new T.Color(0x7dff9b) };
+  const CH_COL = { free: new T.Color(0x2ee66b), charging: new T.Color(0xff2d3d), occupied: new T.Color(0xffc21a) };
   PT.setChargerLight = function (slot, state) {
     if (!slot.cLight) return;
-    slot.cLight.setColorAt(slot.cIdx, CH_COL[state]); slot.cLight.instanceColor.needsUpdate = true;
+    for (const m of [slot.cLight, slot.cLamp]) { m.setColorAt(slot.cIdx, CH_COL[state]); m.instanceColor.needsUpdate = true; }
   };
   PT.setSlotLight = function (slot, occupied, temp) {
     slot.light.setColorAt(slot.lightIdx, new T.Color(occupied ? (temp ? 0xffb23e : 0x4c8dff) : 0x3ddc97));

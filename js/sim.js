@@ -309,11 +309,11 @@
   const KW = [7, 7, 11, 40];
   function startCharge(c, t0) {
     c.charge = { kw: KW[(Math.random() * KW.length) | 0], cap: 60, soc0: Math.round(rand(12, 65)), t0, t1: null, lit: 'on' };
-    PT.setChargerLight(c.slot, 'on');
+    PT.setChargerLight(c.slot, 'charging');
   }
   function stopCharge(c) {
     if (c.charge && c.charge.t1 == null) c.charge.t1 = sim.t;
-    PT.setChargerLight(c.slot, 'idle');
+    PT.setChargerLight(c.slot, 'free');
   }
   sim.chargeInfo = function (c) {
     const g = c.charge;
@@ -331,6 +331,7 @@
     c.pos.set(s.x, s.y, s.z); c.dir.set(0, 0, Math.sign(s.z - s.aisleZ));
     PT.setSlotLight(s, true, c.type === 'temp');
     if (s.charger && Math.random() < 0.6) startCharge(c, t0 == null ? sim.t : t0);
+    else PT.setChargerLight(s, 'occupied');
   }
   function trySpawn() {
     for (const o of sim.cars) if (o.state === 'arriving' && o.pos.x > 96) return;
@@ -493,7 +494,7 @@
     if ((chargeT -= dt) <= 0) {
       chargeT = 1;
       for (const c of sim.cars) {
-        if (c.state === 'parked' && c.charge && c.charge.lit === 'on' && sim.chargeInfo(c).full) { c.charge.lit = 'full'; PT.setChargerLight(c.slot, 'full'); }
+        if (c.state === 'parked' && c.charge && c.charge.lit === 'on' && sim.chargeInfo(c).full) { c.charge.lit = 'full'; PT.setChargerLight(c.slot, 'occupied'); }
       }
     }
     for (const d of decor) { d.m.position.x += d.v * dt; if (d.m.position.x > 150) d.m.position.x = -150; }
