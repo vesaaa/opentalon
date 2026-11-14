@@ -592,22 +592,25 @@
     snow = new T.Points(sg, new T.PointsMaterial({ map: glowTex, color: 0xffffff, size: 1.5, transparent: true, opacity: 0, depthWrite: false }));
     snow.renderOrder = 60; snow.frustumCulled = false; snow.visible = false; scene.add(snow);
   }
+  // 单看 B1 / B2 时在室内，天气不起作用；雨雪也只落到地面，不会穿进地库
+  const indoors = () => floorMode === 'b1' || floorMode === 'b2';
   function updateWeather(dt, t) {
-    if (env.wr > 0.01) {
+    const out = !indoors();
+    if (out && env.wr > 0.01) {
       rain.visible = true; rain.material.opacity = 0.75 * env.wr;
       const a = rain.geometry.attributes.position.array, d = 85 * dt;
       for (let i = 1; i < a.length; i += 6) {
         a[i] -= d; a[i + 3] -= d;
-        if (a[i + 3] < -12) { a[i] += 110; a[i + 3] += 110; }
+        if (a[i + 3] < 0) { a[i] += 98; a[i + 3] += 98; }
       }
       rain.geometry.attributes.position.needsUpdate = true;
     } else rain.visible = false;
-    if (env.ws > 0.01) {
+    if (out && env.ws > 0.01) {
       snow.visible = true; snow.material.opacity = 0.9 * env.ws;
       const a = snow.geometry.attributes.position.array;
       for (let i = 0; i < a.length; i += 3) {
         a[i + 1] -= 7 * dt; a[i] += Math.sin(t * 0.8 + i) * 1.2 * dt;
-        if (a[i + 1] < -12) a[i + 1] += 110;
+        if (a[i + 1] < 0) a[i + 1] += 98;
       }
       snow.geometry.attributes.position.needsUpdate = true;
     } else snow.visible = false;
@@ -623,7 +626,7 @@
     env.wr += ((w === 'rain' ? 1 : 0) - env.wr) * k;
     env.ws += ((w === 'snow' ? 1 : 0) - env.ws) * k;
     env.wf += ((w === 'fog' ? 1 : 0) - env.wf) * k;
-    const ov = Math.max(env.wr * 0.7, env.ws * 0.8, env.wf);
+    const ov = indoors() ? 0 : Math.max(env.wr * 0.7, env.ws * 0.8, env.wf);   // 室内不受阴天压暗
     tB.copy(cGD).lerp(cGN, env.n);
     sTop.copy(cTopD).lerp(cTopN, env.n).lerp(tB, ov * 0.85);
     sHor.copy(cHorD).lerp(cHorN, env.n).lerp(tB, ov * 0.85);
@@ -635,7 +638,7 @@
     sunSprite.material.opacity = (1 - ov) * 0.95;
     sunSprite.material.color.copy(cSunD).lerp(cMoon, env.n);
     sunSprite.scale.setScalar(lerp(190, 70, env.n));
-    scene.fog.density = 0.0011 + 0.0026 * env.wr + 0.0034 * env.ws + 0.0115 * env.wf;
+    scene.fog.density = 0.0011 + (indoors() ? 0 : 0.0026 * env.wr + 0.0034 * env.ws + 0.0115 * env.wf);
     hemi.intensity = lerp(1.5, 0.62, env.n) * (1 - 0.2 * ov) * (hq ? 0.6 : 1);
     sun.intensity = lerp(2.6, 0.5, env.n) * (1 - 0.6 * ov);
     // 雨天路面变湿：降低粗糙度，高画质下会反射天空
