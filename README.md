@@ -1,187 +1,30 @@
-# OpenTalon (利爪) —— 你的全栖网络与存储管控中枢
+# 园区停车数字孪生 Demo（Three.js）
 
-<p align="center">
-  <img src="webui/web/logo-opentalon-light.png" alt="OpenTalon 利爪 Logo" width="260" />
-</p>
+独立的纯静态演示。Three.js 通过 CDN 加载，无需安装和构建。
 
-> **单体极简部署，网关自动推导拓扑连线** — 开源跨平台设备管理与拓扑监控平台
+## 运行
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://go.dev)
-[![Author](https://img.shields.io/badge/Author-vesaa-green.svg)](https://github.com/vesaa)
-
-## ✨ 核心特性
-
-| 特性 | 描述 |
-|------|------|
-| **单体二进制** | Server + 前端 UI 编译为一个文件，零依赖部署 |
-| **网关自动推导** | Agent 上报本机 IP + 默认网关，Server 自动建立父子拓扑连线 |
-| **AntV G6 拓扑图** | 可拖拽节点，箭头连线，点击节点弹出实时 Metrics 抽屉 |
-| **跨平台 Agent** | 支持 Linux / Windows / macOS，采集 CPU/内存/磁盘/TCP/UDP/带宽 |
-
-## 🚀 快速开始
-
-### 安装
-
-#### 一键安装（推荐，Linux / macOS）
+直接用浏览器打开 `index.html`，或在仓库根目录起一个静态服务：
 
 ```bash
-# 安装最新版本的 Server 并注册为系统服务
-curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s server
-
-# 安装最新版本的 Agent（必须指定 join/token）
-curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s agent --join 192.168.1.1:1616 --token opentalon-secret-key-123
+python3 -m http.server 8080   # 然后访问 http://localhost:8080
 ```
 
-#### 卸载（服务保留二进制）
+## 功能
 
-```bash
-# 一键卸载全部服务（server + agent）
-curl -fsSL https://raw.githubusercontent.com/vesaaa/opentalon/main/scripts/install.sh | sh -s uninstall
-```
+- 办公楼 + 地下两层停车场（B1 / B2，共 128 个车位），地面 2 进 2 出四个道闸
+- 视角：左键拖拽旋转，右键或 Shift 拖拽平移，滚轮/双指缩放；可切换 全部 / 地面 / B1 / B2
+- 环境：白天 / 夜晚，可叠加 晴 / 雨 / 雪 / 大雾
+- 月卡车自动识别进出；临时车进场免停，出场停留缴费（15 分钟内免费，首小时 ¥10，之后每小时 ¥5，封顶 ¥50）
+- 点击任意闸机查看当前车辆、停车时长和应付金额
+- 异常场景：费用争议、已缴费未抬杆。可在控制台手动触发，也可打开 Auto 按概率触发
+- 异常时顶部出现红色告警，点击后镜头聚焦到对应出口，可「直接开闸放行」或「修改金额并重新缴费」
 
-#### 手动下载二进制
+## 结构
 
-```bash
-# Linux amd64 通用版（推荐，适用于 CentOS 7 / Debian / Ubuntu / Rocky / Alpine 等）
-curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-linux-amd64 -o opentalon
-chmod +x opentalon
-
-# Alpine Linux amd64 (兼容旧脚本，功能同上)
-curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-linux-amd64-alpine -o opentalon
-chmod +x opentalon
-
-# Linux arm64
-curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-linux-arm64 -o opentalon
-chmod +x opentalon
-
-# Linux armv7 (32-bit)
-curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-linux-armv7 -o opentalon
-chmod +x opentalon
-
-# macOS amd64 (Intel)
-curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-darwin-amd64 -o opentalon
-chmod +x opentalon
-
-# macOS arm64 (Apple Silicon)
-curl -L https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-darwin-arm64 -o opentalon
-chmod +x opentalon
-
-# Windows amd64 (PowerShell)
-Invoke-WebRequest -Uri "https://github.com/vesaaa/opentalon/releases/latest/download/opentalon-windows-amd64.exe" -OutFile opentalon.exe
-```
-
-### 启动 Server
-
-```bash
-./opentalon server
-# 控制平面（Web UI + API）: http://localhost:6677
-# 数据平面（Agent 上报） : http://localhost:1616
-```
-
-### 纳管设备（Agent）
-
-```bash
-# 在需要被管理的设备上运行（join 不带端口时默认使用 data_port，例如 1616）：
-./opentalon agent --join 192.168.1.1 --token opentalon-secret-key-123
-
-# 指定分组和 PVE 父节点（可选）：
-./opentalon agent --join 192.168.1.1 --token opentalon-secret-key-123 --group "虚拟化" --parent 3
-
-# 排查问题时可打开 HTTP 日志：
-./opentalon agent --join 192.168.1.1 --token opentalon-secret-key-123 --debug-http
-```
-
-> Agent 启动后自动向 Server 注册，Server 根据该设备上报的 **默认网关 IP** 自动将其连线到对应父节点，无需手动配置拓扑。
-
-## 📁 目录结构
-
-```
-opentalon/
-├── main.go                    # 统一 CLI 入口 (cobra)
-├── internal/
-│   ├── config/config.go       # Viper 配置 + 智能默认值
-│   ├── models/                # GORM 数据模型
-│   │   ├── device.go          # Device (IP, GatewayIP, ParentID, Group)
-│   │   └── metrics.go         # Metrics (CPU/Mem/Disk/TCP/UDP/Rx/Tx)
-│   ├── agent/
-│   │   ├── collector.go       # gopsutil 跨平台采集 + 网关检测
-│   │   └── agent.go           # 心跳上报逻辑
-│   └── server/
-│       ├── db.go              # GORM + SQLite + 自动父子推导
-│       ├── api.go             # Gin RESTful API
-│       └── embed.go           # go:embed 静态文件
-└── web/
-    ├── index.html             # Vue 3 + AntV G6 看板
-    └── dist/                  # 生产前端构建产物目录
-```
-
-## ⚙️ 配置
-
-默认配置（可通过 `config.yaml` 或 `TALON_*` 环境变量覆盖）：
-
-```yaml
-server_host:           "0.0.0.0"
-control_port:          6677      # Web UI + 控制平面 API
-data_port:             1616      # Agent 上报数据平面
-db_path:               "opentalon.db"
-db_driver:             "sqlite"
-
-jwt_secret:            "OtLn$Xq7@wP2!mZ9#rK6^dV4&eA1*fY"
-agent_token:           "opentalon-secret-key-123"
-admin_user:            "admin"
-admin_pass:            "admin"
-
-agent_join_addr:       "127.0.0.1:1616"
-agent_interval_seconds: 30
-agent_group:           "default"
-agent_network_mode:    "Bridged"
-agent_outbound_token:  "opentalon-secret-key-123"
-```
-
-> **提示**：生产环境务必修改 `jwt_secret`、`agent_token`、`admin_user` / `admin_pass` 等安全相关配置。
-
-## 🔨 编译
-
-### 本地编译
-
-```bash
-go mod tidy
-go build -o opentalon .
-```
-
-### 交叉编译
-
-```bash
-# Linux amd64 通用静态版
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -tags netgo,osusergo -o dist/opentalon-linux-amd64 .
-
-# Windows amd64
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/opentalon-windows-amd64.exe .
-
-# Alpine / ARM64
-GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w" -o dist/opentalon-linux-arm64 .
-
-# 或使用 Makefile
-make all
-```
-
-> ✅ 纯 Go SQLite (`modernc.org/sqlite`) — 无 CGO，无需额外工具链即可交叉编译。
-
-## 🌐 REST API
-
-| Method | Path | 说明 |
-|--------|------|------|
-| `GET`  | `/api/devices/tree` | 获取完整树形拓扑 |
-| `POST` | `/api/devices/register` | Agent 注册/更新设备 |
-| `POST` | `/api/metrics` | Agent 上报指标 |
-| `GET`  | `/api/devices/:id/metrics` | 获取某设备最新指标 |
-| `GET`  | `/api/health` | 健康检查 |
-
-## 📋 适配的异构系统
-
-Windows 10 · Alpine Linux · Debian / FNOS · Proxmox VE · RockyLinux · Merlin 路由 · OpenWrt
-
-## 📄 License
-
-[MIT](LICENSE) © 2024 vesaa
+| 文件 | 内容 |
+| --- | --- |
+| `js/scene.js` | 渲染器、相机控制、昼夜与天气、建筑/车库/道路、闸机与车辆模型 |
+| `js/sim.js` | 行车路线、车辆状态机、闸机收费流程、异常场景 |
+| `js/ui.js` | 控制台、统计、告警、闸机详情面板、主循环 |
+| `css/style.css` | 界面样式 |
