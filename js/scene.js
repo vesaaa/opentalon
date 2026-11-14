@@ -28,7 +28,8 @@
 
   let renderer, scene, camera, canvas;
   let gSurface, gB1, gB2, gCars;
-  let hemi, sun, groundMat, winMat, glowMat, poolMat, starMat, beamMat, rain, snow;
+  const winMats = [];
+  let hemi, sun, groundMat, lawnMat, cityMat, glowMat, poolMat, starMat, beamMat, rain, snow;
   const hitBoxes = [];
   let floorMode = 'all';
   const floorMats = {}, see = { ground: true, b1: true, b2: true };
@@ -120,6 +121,7 @@
     scene.add(gB2, gB1, gSurface, gCars);
     PT.groups = { surface: gSurface, b1: gB1, b2: gB2, cars: gCars };
 
+    buildTextures();
     buildGround();
     buildBuilding();
     buildLevel(C.Y1, gB1, 1, 'B1');
@@ -142,29 +144,129 @@
     camera.updateProjectionMatrix();
   }
 
-  /* ---------- 地面、道路 ---------- */
+  /* ---------- 程序化贴图：全部用 canvas 现画，不加载图片资源 ---------- */
+  function tile(tex) {
+    tex.wrapS = tex.wrapT = T.RepeatWrapping;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return tex;
+  }
+  function speckle(g, w, h, n, rgb, spread, alpha) {
+    for (let i = 0; i < n; i++) {
+      const k = (Math.random() - 0.5) * spread;
+      g.fillStyle = `rgba(${(rgb[0] + k) | 0},${(rgb[1] + k) | 0},${(rgb[2] + k) | 0},${alpha})`;
+      g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2.5, 1 + Math.random() * 2.5);
+    }
+  }
+  const TEX = {};
+  function buildTextures() {
+    TEX.asphalt = tile(canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#2c3037'; g.fillRect(0, 0, w, h); speckle(g, w, h, 6000, [70, 74, 80], 90, 0.5);
+    }).tex);
+    TEX.paving = tile(canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#7f8993'; g.fillRect(0, 0, w, h); speckle(g, w, h, 3500, [128, 137, 147], 70, 0.4);
+      for (let r = 0; r < 4; r++) for (let c = -1; c < 4; c++) {
+        const x = c * 64 + (r % 2) * 32, y = r * 64;
+        g.fillStyle = `rgba(255,255,255,${Math.random() * 0.07})`; g.fillRect(x, y, 64, 64);
+        g.strokeStyle = 'rgba(38,46,56,.75)'; g.lineWidth = 2; g.strokeRect(x, y, 64, 64);
+      }
+    }).tex);
+    TEX.grass = tile(canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#3d6a3a'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 7000; i++) {
+        const k = Math.random();
+        g.fillStyle = `rgba(${(30 + k * 50) | 0},${(80 + k * 90) | 0},${(30 + k * 40) | 0},.55)`;
+        g.fillRect(Math.random() * w, Math.random() * h, 1.5, 2 + Math.random() * 3);
+      }
+    }).tex);
+    TEX.concrete = tile(canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#6a737d'; g.fillRect(0, 0, w, h); speckle(g, w, h, 5000, [106, 115, 125], 60, 0.4);
+      g.strokeStyle = 'rgba(30,36,44,.5)'; g.lineWidth = 2; g.strokeRect(0, 0, w, h);
+    }).tex);
+    // 周边楼：8 开间 × 8 层的可平铺立面
+    const cityDraw = (lit) => (g, w, h) => {
+      g.fillStyle = lit ? '#000' : '#8c949d'; g.fillRect(0, 0, w, h);
+      if (!lit) speckle(g, w, h, 2500, [140, 148, 157], 50, 0.35);
+      for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+        if (lit) { if (Math.random() > 0.3) continue; g.fillStyle = Math.random() < 0.75 ? '#ffd58a' : '#bfe2ff'; }
+        else { const k = 0.7 + Math.random() * 0.3; g.fillStyle = `rgb(${(52 * k) | 0},${(78 * k) | 0},${(108 * k) | 0})`; }
+        g.fillRect(c * 32 + 5, r * 32 + 7, 22, 18);
+      }
+    };
+    TEX.city = tile(canvasTex(256, 256, cityDraw(false)).tex);
+    TEX.cityLit = tile(canvasTex(256, 256, cityDraw(true)).tex);
+    // 裙楼：上部石材挂板，下部玻璃店面
+    TEX.podium = tile(canvasTex(512, 256, (g, w, h) => {
+      g.fillStyle = '#b0aa9c'; g.fillRect(0, 0, w, h); speckle(g, w, h, 5000, [176, 170, 156], 50, 0.4);
+      g.strokeStyle = 'rgba(70,66,58,.6)'; g.lineWidth = 2;
+      for (let x = 0; x <= w; x += 64) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 96); g.stroke(); }
+      g.beginPath(); g.moveTo(0, 48); g.lineTo(w, 48); g.stroke();
+      const gl = g.createLinearGradient(0, 100, 0, h);
+      gl.addColorStop(0, '#3f6488'); gl.addColorStop(1, '#16283c');
+      g.fillStyle = gl; g.fillRect(0, 100, w, h - 100);
+      g.fillStyle = '#d5dae0';
+      for (let x = 0; x <= w; x += 64) g.fillRect(x - 2, 100, 4, h - 100);
+      g.fillRect(0, 96, w, 8); g.fillRect(0, 170, w, 3);
+      g.fillStyle = '#4a4f57'; g.fillRect(0, h - 10, w, 10);
+    }).tex);
+  }
+  // 按真实尺寸缩放 UV，让同一张可平铺贴图在不同大小的面上密度一致
+  function planeUV(geo, su, sv) {
+    const uv = geo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+  }
+  function boxUV(geo, w, h, d, uSide, vSide, uTop) {
+    const uv = geo.attributes.uv;
+    const sc = [[d / uSide, h / vSide], [d / uSide, h / vSide], [w / uTop, d / uTop], [w / uTop, d / uTop], [w / uSide, h / vSide], [w / uSide, h / vSide]];
+    for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) {
+      const i = f * 4 + k; uv.setXY(i, uv.getX(i) * sc[f][0], uv.getY(i) * sc[f][1]);
+    }
+  }
+  function flat(w, d, mat, x, y, z, unit, order) {
+    const geo = new T.PlaneGeometry(w, d); planeUV(geo, w / unit, d / unit);
+    const m = new T.Mesh(geo, mat);
+    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.renderOrder = order;
+    gSurface.add(m);
+    return m;
+  }
+
+  /* ---------- 地面、道路、绿化 ---------- */
   function buildGround() {
-    groundMat = new T.MeshStandardMaterial({ color: 0x15304f, transparent: true, opacity: 0.5, depthWrite: false, roughness: 0.9 });
-    const g = new T.Mesh(new T.PlaneGeometry(300, 300), groundMat);
-    g.rotation.x = -Math.PI / 2; g.renderOrder = 3;
-    gSurface.add(g);
+    groundMat = new T.MeshStandardMaterial({ map: TEX.paving, transparent: true, opacity: 0.5, depthWrite: false, roughness: 0.95 });
+    flat(300, 300, groundMat, 0, 0, 0, 6, 3);
     const grid = new T.GridHelper(300, 60, 0x3b86d6, 0x215089);
-    grid.material.transparent = true; grid.material.opacity = 0.32; grid.position.y = 0.02;
+    grid.material.transparent = true; grid.material.opacity = 0.12; grid.position.y = 0.02;
     gSurface.add(grid);
 
-    const roadMat = new T.MeshStandardMaterial({ color: 0x0a1626, transparent: true, opacity: 0.85, depthWrite: false, roughness: 0.8 });
-    const road = new T.Mesh(new T.PlaneGeometry(300, 12), roadMat);
-    road.rotation.x = -Math.PI / 2; road.position.set(0, 0.03, 54); road.renderOrder = 4;
-    gSurface.add(road);
-    for (const sx of [-38, 38]) {
-      const d = new T.Mesh(new T.PlaneGeometry(8.6, 18), roadMat);
-      d.rotation.x = -Math.PI / 2; d.position.set(sx, 0.03, 39); d.renderOrder = 4;
-      gSurface.add(d);
+    const roadMat = new T.MeshStandardMaterial({ map: TEX.asphalt, transparent: true, opacity: 0.95, depthWrite: false, roughness: 0.9 });
+    flat(300, 12, roadMat, 0, 0.03, 54, 8, 4);
+    for (const sx of [-38, 38]) flat(8.6, 18, roadMat, sx, 0.03, 39, 8, 4);
+
+    // 草坪与树
+    lawnMat = new T.MeshStandardMaterial({ map: TEX.grass, transparent: true, opacity: 0.6, depthWrite: false, roughness: 1 });
+    const lawns = [[-53, 3, 14, 84], [53, 3, 14, 84], [0, -37, 88, 8], [-19, 32, 22, 22], [19, 32, 22, 22]];
+    const trunkM = new T.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
+    const leafM = new T.MeshStandardMaterial({ color: 0x3f8a45, roughness: 0.9, flatShading: true });
+    const spots = [];
+    for (const [x, z, w, d] of lawns) {
+      flat(w, d, lawnMat, x, 0.035, z, 8, 4);
+      const n = Math.max(3, Math.round((w * d) / 150));
+      for (let i = 0; i < n; i++) spots.push([x + (Math.random() - 0.5) * (w - 5), z + (Math.random() - 0.5) * (d - 5), 0.8 + Math.random() * 0.5]);
     }
+    const trunks = new T.InstancedMesh(new T.CylinderGeometry(0.22, 0.3, 2.4, 6), trunkM, spots.length);
+    const crowns = new T.InstancedMesh(new T.IcosahedronGeometry(2.1, 0), leafM, spots.length);
+    const m4 = new T.Matrix4(), q = new T.Quaternion(), v = new T.Vector3(), sc = new T.Vector3();
+    spots.forEach(([x, z, k], i) => {
+      m4.compose(v.set(x, 1.2 * k, z), q, sc.set(k, k, k)); trunks.setMatrixAt(i, m4);
+      q.setFromAxisAngle(T.Object3D.DEFAULT_UP, Math.random() * 6);
+      m4.compose(v.set(x, 3.6 * k, z), q, sc.set(k, k * 1.15, k)); crowns.setMatrixAt(i, m4);
+      q.identity();
+    });
+    gSurface.add(trunks, crowns);
+
     const ln = [];
     for (let x = -148; x < 148; x += 8) ln.push(x, 0.06, 54, x + 4, 0.06, 54);
-    lineSegs(ln, 0xffd166, 0.7, gSurface);
-    lineSegs([-150, 0.06, 48, 150, 0.06, 48, -150, 0.06, 60, 150, 0.06, 60], 0x4cc9ff, 0.55, gSurface);
+    lineSegs(ln, 0xffd166, 0.8, gSurface);
+    lineSegs([-150, 0.06, 48, 150, 0.06, 48, -150, 0.06, 60, 150, 0.06, 60], 0xe8eef5, 0.6, gSurface);
     // 园区红线
     lineSegs([-62, 0.06, -42, 62, 0.06, -42, 62, 0.06, -42, 62, 0.06, 48, -62, 0.06, 48, -62, 0.06, -42], 0x4cc9ff, 0.5, gSurface);
     // 车道分隔线与停止线
@@ -174,44 +276,52 @@
       dl.push(C.XE[k] - 1.8, 0.06, C.GATE_Z + 1.2, C.XE[k] + 1.8, 0.06, C.GATE_Z + 1.2);
       dl.push(C.XX[k] - 1.8, 0.06, C.GATE_Z - 1.2, C.XX[k] + 1.8, 0.06, C.GATE_Z - 1.2);
     }
-    lineSegs(dl, 0xffffff, 0.6, gSurface);
+    lineSegs(dl, 0xffffff, 0.7, gSurface);
   }
 
   /* ---------- 办公楼 ---------- */
-  function buildBuilding() {
-    const base = canvasTex(512, 512, (g, w, h) => {
-      g.fillStyle = '#12294a'; g.fillRect(0, 0, w, h);
-      for (let r = 0; r < 14; r++) for (let c = 0; c < 16; c++) {
-        g.fillStyle = (r + c) % 5 === 0 ? '#2d5d94' : '#234a7a';
-        g.fillRect(c * 32 + 4, r * (h / 14) + 7, 24, h / 14 - 14);
-      }
-    });
-    const emis = canvasTex(512, 512, (g, w, h) => {
-      g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-      for (let r = 0; r < 14; r++) for (let c = 0; c < 16; c++) {
-        if (Math.random() < 0.42) {
-          g.fillStyle = Math.random() < 0.7 ? '#ffd58a' : '#9fd8ff';
-          g.fillRect(c * 32 + 4, r * (h / 14) + 7, 24, h / 14 - 14);
+  // 整面玻璃幕墙：每层上沿是层间板，下面是带竖梃的玻璃；夜间随机亮灯
+  function facade(cols, rows, W, H) {
+    const cw = W / cols, rh = H / rows, lit = [];
+    const map = canvasTex(W, H, (g) => {
+      g.fillStyle = '#aeb8c2'; g.fillRect(0, 0, W, H);
+      for (let r = 0; r < rows; r++) {
+        g.fillStyle = '#33465c'; g.fillRect(0, r * rh, W, rh * 0.2);
+        for (let c = 0; c < cols; c++) {
+          const t = r / rows, k = 0.78 + Math.random() * 0.22;
+          const x = c * cw + 2, y = r * rh + rh * 0.22, w = cw - 4, h = rh * 0.78 - 2;
+          g.fillStyle = `rgb(${((112 - 58 * t) * k) | 0},${((162 - 66 * t) * k) | 0},${((208 - 62 * t) * k) | 0})`;
+          g.fillRect(x, y, w, h);
+          g.fillStyle = 'rgba(255,255,255,.10)'; g.fillRect(x, y, w * 0.35, h);
+          if (Math.random() < 0.14) { g.fillStyle = 'rgba(232,236,240,.4)'; g.fillRect(x, y, w, h * (0.3 + Math.random() * 0.4)); }
+          lit.push(Math.random() < 0.4 ? (Math.random() < 0.72 ? '#ffd58a' : '#bfe2ff') : null);
         }
       }
-    });
-    winMat = new T.MeshStandardMaterial({
-      color: 0xffffff, map: base.tex, emissive: 0xffffff, emissiveMap: emis.tex, emissiveIntensity: 0,
-      transparent: true, opacity: 0.8, roughness: 0.35, metalness: 0.35,
-    });
-    const capMat = new T.MeshStandardMaterial({ color: 0x1a3a62, transparent: true, opacity: 0.85, roughness: 0.6 });
-    const podMat = new T.MeshStandardMaterial({ color: 0x1c426e, transparent: true, opacity: 0.72, roughness: 0.5 });
-    const pod = box(60, 7, 38, podMat, 0, 3.5, -9, gSurface); pod.renderOrder = 5;
-    edges(pod, 0x6fd3ff, 0.9);
-    const tower = box(46, 56, 28, [winMat, winMat, capMat, capMat, winMat, winMat], 0, 35, -10, gSurface);
+    }).tex;
+    const emis = canvasTex(W, H, (g) => {
+      g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+      lit.forEach((col, i) => {
+        if (!col) return;
+        const r = (i / cols) | 0, c = i % cols;
+        g.fillStyle = col; g.fillRect(c * cw + 2, r * rh + rh * 0.22, cw - 4, rh * 0.78 - 2);
+      });
+    }).tex;
+    map.anisotropy = emis.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const m = new T.MeshStandardMaterial({ map, emissive: 0xffffff, emissiveMap: emis, emissiveIntensity: 0, transparent: true, opacity: 0.93, roughness: 0.22, metalness: 0.2 });
+    winMats.push(m);
+    return m;
+  }
+  function buildBuilding() {
+    const roofMat = new T.MeshStandardMaterial({ map: TEX.concrete, roughness: 0.9 });
+    const podMat = new T.MeshStandardMaterial({ map: TEX.podium, transparent: true, opacity: 0.95, roughness: 0.6 });
+    const pod = box(60, 7, 38, [podMat, podMat, roofMat, roofMat, podMat, podMat], 0, 3.5, -9, gSurface); pod.renderOrder = 5;
+    boxUV(pod.geometry, 60, 7, 38, 20, 7, 8);
+    edges(pod, 0x9fdcff, 0.45);
+    const wide = facade(23, 14, 1024, 1024), narrow = facade(14, 14, 512, 1024);
+    const tower = box(46, 56, 28, [narrow, narrow, roofMat, roofMat, wide, wide], 0, 35, -10, gSurface);
     tower.renderOrder = 6;
-    edges(tower, 0x6fd3ff, 0.95);
-    const fl = [];
-    for (let y = 11; y < 63; y += 4) {
-      fl.push(-23, y, 4, 23, y, 4, 23, y, 4, 23, y, -24, 23, y, -24, -23, y, -24, -23, y, -24, -23, y, 4);
-    }
-    lineSegs(fl, 0x4cc9ff, 0.22, gSurface);
-    const roof = box(14, 4, 9, capMat, 6, 65, -12, gSurface); edges(roof, 0x6fd3ff, 0.8);
+    edges(tower, 0x9fdcff, 0.5);
+    const roof = box(14, 4, 9, roofMat, 6, 65, -12, gSurface); edges(roof, 0x9fdcff, 0.4);
     lineSegs([-12, 63, -16, -12, 76, -16], 0xff5d6c, 0.9, gSurface);
     const name = textSprite(512, 96, 30);
     name.ctx.font = '700 54px ' + PT.FONT; name.ctx.textAlign = 'center'; name.ctx.textBaseline = 'middle';
@@ -221,8 +331,9 @@
 
   /* ---------- 地下楼层 ---------- */
   function buildLevel(y, grp, level, name) {
-    const fm = new T.MeshStandardMaterial({ color: 0x0f2743, transparent: true, opacity: 0.62, depthWrite: false, roughness: 0.85 });
-    const f = new T.Mesh(new T.PlaneGeometry(96, 66), fm);
+    const fm = new T.MeshStandardMaterial({ map: TEX.concrete, color: 0x9db4d2, transparent: true, opacity: 0.62, depthWrite: false, roughness: 0.85 });
+    const fg = new T.PlaneGeometry(96, 66); planeUV(fg, 12, 8.25);
+    const f = new T.Mesh(fg, fm);
     f.rotation.x = -Math.PI / 2; f.position.set(0, y, 1); f.renderOrder = level === 1 ? 2 : 1;
     floorMats[level === 1 ? 'b1' : 'b2'] = fm;
     grp.add(f);
@@ -295,10 +406,15 @@
       const s = new T.Sprite(glowMat); s.scale.set(5, 5, 1); s.position.set(x, 7.2, 47); gSurface.add(s);
       const p = new T.Mesh(poolGeo, poolMat); p.position.set(x, 0.09, 50); gSurface.add(p);
     }
-    const bm = new T.MeshStandardMaterial({ color: 0x10243f, transparent: true, opacity: 0.55, roughness: 0.9 });
+    cityMat = [0xffffff, 0xe2d6c6, 0xc6d6e8].map((c) => new T.MeshStandardMaterial({ map: TEX.city, color: c, emissive: 0xffffff, emissiveMap: TEX.cityLit, emissiveIntensity: 0, roughness: 0.85 }));
+    const cityRoof = new T.MeshStandardMaterial({ map: TEX.concrete, roughness: 0.95 });
     [[-100, 22, -20, 36, 44], [-104, 14, -78, 44, 40], [100, 30, -30, 34, 50], [98, 12, 14, 30, 24], [-30, 18, -90, 50, 30],
       [40, 26, -92, 44, 30], [-70, 16, 92, 60, 30], [10, 22, 96, 50, 34], [84, 14, 90, 46, 28], [-98, 10, 22, 30, 26]]
-      .forEach(([x, h, z, w, d]) => { const b = box(w, h, d, bm, x, h / 2, z, gSurface); edges(b, 0x4cc9ff, 0.28); });
+      .forEach(([x, h, z, w, d], i) => {
+        const sm = cityMat[i % 3];
+        const b = box(w, h, d, [sm, sm, cityRoof, cityRoof, sm, sm], x, h / 2, z, gSurface);
+        boxUV(b.geometry, w, h, d, 32, 32, 10);
+      });
 
     const sp = [];
     for (let i = 0; i < 700; i++) {
@@ -363,7 +479,8 @@
     hemi.intensity = lerp(1.5, 0.62, env.n) * (1 - 0.2 * ov);
     sun.intensity = lerp(2.6, 0.5, env.n) * (1 - 0.6 * ov);
     sun.color.copy(cSunD).lerp(cSunN, env.n);
-    winMat.emissiveIntensity = env.n * 1.5;
+    for (const m of winMats) m.emissiveIntensity = env.n * 1.5;
+    for (const m of cityMat) m.emissiveIntensity = env.n * 1.1;
     glowMat.opacity = env.n * 0.95; poolMat.opacity = env.n * 0.3;
     starMat.opacity = env.n * (1 - ov) * 0.9;
     beamMat.opacity = env.n * 0.5; beamMat.visible = env.n > 0.03;
@@ -380,6 +497,7 @@
   PT.setSee = function (layer, on) {
     see[layer] = on;
     groundMat.opacity = see.ground ? 0.5 : 0.97;
+    lawnMat.opacity = see.ground ? 0.6 : 0.97;
     floorMats.b1.opacity = see.b1 ? 0.62 : 0.97;
     floorMats.b2.opacity = see.b2 ? 0.62 : 0.97;
   };
