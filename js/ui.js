@@ -45,6 +45,17 @@
     openPanel(id);
   }
 
+  /* ---------- 画质：记住上次选择；首次按显卡自动判断，帧率太低自动降回标准 ---------- */
+  let fpsWatch = null;
+  const Q_NAME = ['流畅', '标准', '高'];
+  function setQuality(level) { PT.setQuality(level); setSeg('quality', String(level)); }
+  (function () {
+    let saved = null;
+    try { saved = localStorage.getItem('pt-quality'); } catch (err) { /* 忽略 */ }
+    if (saved === '0' || saved === '1' || saved === '2') setQuality(+saved);
+    else { setQuality(PT.autoQuality()); fpsWatch = { t: 0, n: 0 }; }
+  })();
+
   /* ---------- 控制台 ---------- */
   document.querySelectorAll('.seg').forEach((seg) => seg.addEventListener('click', (e) => {
     const b = e.target.closest('button');
@@ -64,6 +75,7 @@
     if (key === 'time') PT.env.night = val === 'night';
     else if (key === 'weather') PT.env.weather = val;
     else if (key === 'floor') setFloor(val, true);
+    else if (key === 'quality') { setQuality(+val); fpsWatch = null; try { localStorage.setItem('pt-quality', val); } catch (err) { /* 存不了就算了 */ } }
     else if (key === 'speed') { paused = val === '0'; if (!paused) speed = +val; }
   }));
   $('resetView').addEventListener('click', () => setFloor('all', true));
@@ -180,6 +192,16 @@
     if (!paused) {
       const sdt = rdt * speed, n = Math.max(1, Math.ceil(sdt / 0.04));
       for (let i = 0; i < n; i++) sim.step(sdt / n);
+    }
+    if (fpsWatch) {
+      fpsWatch.t += rdt; fpsWatch.n++;
+      if (fpsWatch.t > 5) {
+        const lv = PT.getQuality();
+        if (fpsWatch.n / fpsWatch.t < 20 && lv > 0) {
+          setQuality(lv - 1); toast(`帧率偏低，已自动降为「${Q_NAME[lv - 1]}」画质`);
+          fpsWatch = { t: -3, n: 0 };   // 留 3 秒让新档位稳定后再测
+        } else fpsWatch = null;
+      }
     }
     sim.sync(rdt, now);
     PT.updateScene(rdt);

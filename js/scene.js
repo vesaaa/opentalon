@@ -29,10 +29,14 @@
   let renderer, scene, camera, canvas;
   let gSurface, gB1, gB2, gCars;
   const winMats = [];
-  let hemi, sun, groundMat, lawnMat, cityMat, glowMat, poolMat, starMat, beamMat, rain, snow;
+  let hemi, sun, groundMat, roadMat, lawnMat, cityMat, glowMat, poolMat, starMat, beamMat, rain, snow;
   const hitBoxes = [];
   let floorMode = 'all';
   const floorMats = {}, see = { ground: false, b1: true, b2: true };
+  // 高画质相关：阴影、天空环境反射、色调映射、凹凸贴图
+  let skyDome = null, rampStub = null, qLevel = 1;
+  let hq = false, pmrem, envRT = null, envDirty = false, skyGeo, skyScene, sunSprite, skyKey = '';
+  const bumpList = [], carPaint = [];
 
   const orbit = (PT.orbit = { target: new T.Vector3(0, -3, 10), r: 185, theta: 0.62, phi: 0.98, tween: null });
   PT.HOME = { target: new T.Vector3(0, -3, 10), r: 185, theta: 0.62, phi: 0.98 };
@@ -42,6 +46,7 @@
   function box(w, h, d, mat, x, y, z, parent) {
     const m = new T.Mesh(new T.BoxGeometry(w, h, d), mat);
     m.position.set(x, y, z);
+    if (parent === gSurface) { m.castShadow = true; m.receiveShadow = true; }
     parent.add(m);
     return m;
   }
@@ -109,7 +114,9 @@
   PT.initScene = function (cv) {
     canvas = cv;
     renderer = new T.WebGLRenderer({ canvas, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(1);
+    renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
+    pmrem = new T.PMREMGenerator(renderer);
     scene = PT.scene = new T.Scene();
     scene.background = new T.Color(0x3d5f86);
     scene.fog = new T.FogExp2(0x3d5f86, 0.0011);
@@ -117,8 +124,12 @@
 
     hemi = new T.HemisphereLight(0xcfe4ff, 0x0b1a30, 1.5);
     sun = new T.DirectionalLight(0xfff1dc, 2.6);
-    sun.position.set(80, 140, 90);
+    sun.position.set(110, 140, 50);
+    const sc = sun.shadow.camera;
+    sc.left = -115; sc.right = 115; sc.top = 115; sc.bottom = -115; sc.near = 20; sc.far = 420;
+    sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.6;
     scene.add(hemi, sun);
+    buildSky();
 
     gSurface = new T.Group(); gB1 = new T.Group(); gB2 = new T.Group(); gCars = new T.Group();
     scene.add(gB2, gB1, gSurface, gCars);
@@ -130,6 +141,7 @@
     buildLevel(C.Y1, gB1, 1, 'B1');
     buildLevel(C.Y2, gB2, 2, 'B2');
     buildRamps();
+    buildRampStub();
     PT.setSee('ground', false);
     buildLampsAndCity();
     buildWeather();
@@ -147,6 +159,55 @@
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
+
+  /* ---------- 天空：渐变天穹 + 太阳/月亮；高画质时同时作为环境反射源 ---------- */
+  function buildSky() {
+    skyGeo = new T.SphereGeometry(1000, 32, 16);
+    skyGeo.setAttribute('color', new T.BufferAttribute(new Float32Array(skyGeo.attributes.position.count * 3), 3));
+    const mat = new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide, fog: false, depthWrite: false });
+    const dome = (skyDome = new T.Mesh(skyGeo, mat)); dome.renderOrder = -10; scene.add(dome);
+    skyScene = new T.Scene(); skyScene.add(new T.Mesh(skyGeo, mat));
+    sunSprite = new T.Sprite(new T.SpriteMaterial({ map: glowTex, transparent: true, blending: T.AdditiveBlending, fog: false, depthWrite: false }));
+    sunSprite.position.copy(sun.position).normalize().multiplyScalar(900); sunSprite.renderOrder = -5;
+    scene.add(sunSprite);
+  }
+  const sTop = new T.Color(), sHor = new T.Color(), sGnd = new T.Color(), sTmp = new T.Color();
+  function paintSky() {
+    const pos = skyGeo.attributes.position, col = skyGeo.attributes.color;
+    for (let i = 0; i < pos.count; i++) {
+      const h = pos.getY(i) / 1000;
+      if (h >= 0) sTmp.copy(sHor).lerp(sTop, Math.sqrt(h)); else sTmp.copy(sHor).lerp(sGnd, Math.min(1, -h * 5));
+      col.setXYZ(i, sTmp.r, sTmp.g, sTmp.b);
+    }
+    col.needsUpdate = true;
+  }
+  function refreshEnvMap() {
+    const rt = pmrem.fromScene(skyScene, 0.03, 1, 2000);
+    if (envRT) envRT.dispose();
+    envRT = rt; scene.environment = rt.texture;
+  }
+  PT.autoQuality = function () {
+    try {
+      const gl = renderer.getContext(), e = gl.getExtension('WEBGL_debug_renderer_info');
+      return /swiftshader|llvmpipe|software|basic render/i.test(e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : '') ? 0 : 2;
+    } catch (err) { return 1; }
+  };
+  // 画质三档：0 流畅（降低渲染分辨率，给没有显卡加速的电脑用）/ 1 标准 / 2 高（阴影、反射、色调映射、凹凸）
+  PT.getQuality = () => qLevel;
+  PT.setQuality = function (level) {
+    qLevel = level;
+    const on = (hq = level === 2);
+    sun.castShadow = on;
+    renderer.toneMapping = on ? T.ACESFilmicToneMapping : T.NoToneMapping;
+    renderer.toneMappingExposure = on ? 1.2 : 1;
+    renderer.setPixelRatio(level === 2 ? Math.min(window.devicePixelRatio || 1, 2) : level === 1 ? 1 : 0.5);
+    resize();
+    applyVisibility();
+    if (on) envDirty = true; else scene.environment = null;
+    for (const m of winMats) { m.metalness = on ? 0.75 : 0.2; m.roughness = on ? 0.12 : 0.22; }
+    for (const m of carPaint) { m.metalness = on ? 0.6 : 0.3; m.roughness = on ? 0.28 : 0.4; }
+    for (const [m, t, k] of bumpList) { m.bumpMap = on ? t : null; m.bumpScale = k; m.needsUpdate = true; }
+  };
 
   /* ---------- 程序化贴图：全部用 canvas 现画，不加载图片资源 ---------- */
   function tile(tex) {
@@ -228,6 +289,7 @@
   function flat(w, d, mat, x, y, z, unit, order) {
     const geo = new T.PlaneGeometry(w, d); planeUV(geo, w / unit, d / unit);
     const m = new T.Mesh(geo, mat);
+    m.receiveShadow = true;
     m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.renderOrder = order;
     gSurface.add(m);
     return m;
@@ -244,12 +306,14 @@
     }
     const gg = new T.ShapeGeometry(shape); planeUV(gg, 1 / 6, 1 / 6);
     const ground = new T.Mesh(gg, groundMat);
-    ground.rotation.x = -Math.PI / 2; ground.renderOrder = 3; gSurface.add(ground);
+    ground.rotation.x = -Math.PI / 2; ground.renderOrder = 3; ground.receiveShadow = true; gSurface.add(ground);
+    bumpList.push([groundMat, TEX.paving, 3]);
     const grid = new T.GridHelper(300, 60, 0x3b86d6, 0x215089);
     grid.material.transparent = true; grid.material.opacity = 0.12; grid.position.y = 0.02; grid.renderOrder = 8;
     gSurface.add(grid);
 
-    const roadMat = new T.MeshStandardMaterial({ map: TEX.asphalt, transparent: true, opacity: 1, depthWrite: false, roughness: 0.9 });
+    roadMat = new T.MeshStandardMaterial({ map: TEX.asphalt, transparent: true, opacity: 1, depthWrite: false, roughness: 0.9 });
+    bumpList.push([roadMat, TEX.asphalt, 2]);
     flat(300, 12, roadMat, 0, 0.03, 54, 8, 4);
     for (const sx of [-38, 38]) flat(8.6, 18, roadMat, sx, 0.03, 39, 8, 4);
 
@@ -273,6 +337,7 @@
       m4.compose(v.set(x, 3.6 * k, z), q, sc.set(k, k * 1.15, k)); crowns.setMatrixAt(i, m4);
       q.identity();
     });
+    trunks.castShadow = crowns.castShadow = true;
     gSurface.add(trunks, crowns);
 
     const ln = [];
@@ -328,6 +393,7 @@
     const podMat = new T.MeshStandardMaterial({ map: TEX.podium, transparent: true, opacity: 0.95, roughness: 0.6 });
     const pod = box(60, 7, 38, [podMat, podMat, roofMat, roofMat, podMat, podMat], 0, 3.5, -9, gSurface); pod.renderOrder = 5;
     boxUV(pod.geometry, 60, 7, 38, 20, 7, 8);
+    bumpList.push([podMat, TEX.podium, 2]);
     edges(pod, 0x9fdcff, 0.45);
     const wide = facade(23, 14, 1024, 1024), narrow = facade(14, 14, 512, 1024);
     const tower = box(46, 56, 28, [narrow, narrow, roofMat, roofMat, wide, wide], 0, 35, -10, gSurface);
@@ -402,6 +468,12 @@
       quad([sx * 8, C.Y1, -12], [sx * 8, C.Y1, -4], [sx * 26, C.Y2, -4], [sx * 26, C.Y2, -12], rm, gB2, 0x7fe0ff);
     }
   }
+  // 流畅档不画地库时，用一块深色斜面填住坡道洞口，避免洞里露出天空色
+  function buildRampStub() {
+    rampStub = new T.Group(); rampStub.visible = false; gSurface.add(rampStub);
+    const m = new T.MeshBasicMaterial({ color: 0x20262e, side: T.DoubleSide });
+    for (const sx of [-1, 1]) quad([sx * 34, 0, 30], [sx * 42, 0, 30], [sx * 42, C.Y1, 12.4], [sx * 34, C.Y1, 12.4], m, rampStub);
+  }
   PT.addFlowLine = function (pts, level) {
     const g = new T.BufferGeometry().setFromPoints(pts.map((p) => new T.Vector3(p.x, p.y + 0.07, p.z)));
     (level === 1 ? gB1 : gB2).add(new T.Line(g, new T.LineBasicMaterial({ color: level === 1 ? 0x4cc9ff : 0x9d8cff, transparent: true, opacity: 0.28 })));
@@ -419,6 +491,7 @@
       const p = new T.Mesh(poolGeo, poolMat); p.position.set(x, 0.09, 50); p.renderOrder = 8; gSurface.add(p);
     }
     cityMat = [0xffffff, 0xe2d6c6, 0xc6d6e8].map((c) => new T.MeshStandardMaterial({ map: TEX.city, color: c, emissive: 0xffffff, emissiveMap: TEX.cityLit, emissiveIntensity: 0, roughness: 0.85 }));
+    for (const m of cityMat) bumpList.push([m, TEX.city, 2]);
     const cityRoof = new T.MeshStandardMaterial({ map: TEX.concrete, roughness: 0.95 });
     [[-100, 22, -20, 36, 44], [-104, 14, -78, 44, 40], [100, 30, -30, 34, 50], [98, 12, 14, 30, 24], [-30, 18, -90, 50, 30],
       [40, 26, -92, 44, 30], [-70, 16, 92, 60, 30], [10, 22, 96, 50, 34], [84, 14, 90, 46, 28], [-98, 10, 22, 30, 26]]
@@ -476,7 +549,9 @@
     } else snow.visible = false;
   }
 
-  const cDay = new T.Color(0x3d5f86), cNight = new T.Color(0x040a16), cGD = new T.Color(0x8c9aa9), cGN = new T.Color(0x131b28);
+  const cGD = new T.Color(0x8c9aa9), cGN = new T.Color(0x131b28), cMoon = new T.Color(0xcfd8ff);
+  const cTopD = new T.Color(0x3a7bd0), cTopN = new T.Color(0x02050d), cHorD = new T.Color(0xa9c9ea), cHorN = new T.Color(0x0e1a31);
+  const cGndD = new T.Color(0x6c747e), cGndN = new T.Color(0x05080f);
   const cSunD = new T.Color(0xfff1dc), cSunN = new T.Color(0x86a4ff), tA = new T.Color(), tB = new T.Color();
   function updateEnv(dt) {
     const k = Math.min(1, dt * 2.2), w = env.weather;
@@ -485,11 +560,22 @@
     env.ws += ((w === 'snow' ? 1 : 0) - env.ws) * k;
     env.wf += ((w === 'fog' ? 1 : 0) - env.wf) * k;
     const ov = Math.max(env.wr * 0.7, env.ws * 0.8, env.wf);
-    tA.copy(cDay).lerp(cNight, env.n); tB.copy(cGD).lerp(cGN, env.n); tA.lerp(tB, ov * 0.85);
-    scene.background.copy(tA); scene.fog.color.copy(tA);
+    tB.copy(cGD).lerp(cGN, env.n);
+    sTop.copy(cTopD).lerp(cTopN, env.n).lerp(tB, ov * 0.85);
+    sHor.copy(cHorD).lerp(cHorN, env.n).lerp(tB, ov * 0.85);
+    sGnd.copy(cGndD).lerp(cGndN, env.n);
+    scene.background.copy(sHor); scene.fog.color.copy(sHor);
+    const key = Math.round(env.n * 40) + '|' + Math.round(ov * 40);
+    if (key !== skyKey) { skyKey = key; paintSky(); envDirty = true; }
+    if (hq && envDirty) { refreshEnvMap(); envDirty = false; }
+    sunSprite.material.opacity = (1 - ov) * 0.95;
+    sunSprite.material.color.copy(cSunD).lerp(cMoon, env.n);
+    sunSprite.scale.setScalar(lerp(190, 70, env.n));
     scene.fog.density = 0.0011 + 0.0026 * env.wr + 0.0034 * env.ws + 0.0115 * env.wf;
-    hemi.intensity = lerp(1.5, 0.62, env.n) * (1 - 0.2 * ov);
+    hemi.intensity = lerp(1.5, 0.62, env.n) * (1 - 0.2 * ov) * (hq ? 0.6 : 1);
     sun.intensity = lerp(2.6, 0.5, env.n) * (1 - 0.6 * ov);
+    // 雨天路面变湿：降低粗糙度，高画质下会反射天空
+    roadMat.roughness = lerp(0.9, 0.25, env.wr); groundMat.roughness = lerp(0.95, 0.45, env.wr);
     sun.color.copy(cSunD).lerp(cSunN, env.n);
     for (const m of winMats) m.emissiveIntensity = env.n * 1.5;
     for (const m of cityMat) m.emissiveIntensity = env.n * 1.1;
@@ -499,12 +585,17 @@
   }
 
   /* ---------- 楼层显示 ---------- */
-  PT.setFloorMode = function (m) {
-    floorMode = m;
+  // 流畅档下，被不透明楼板完全挡住的楼层干脆不画，省掉大量像素填充
+  const hiddenBy = (lv) => qLevel === 0 && floorMode === 'all' && (!see.ground || (lv === 'b2' && !see.b1));
+  function applyVisibility() {
+    const m = floorMode;
     gSurface.visible = m === 'all' || m === 'ground';
-    gB1.visible = m === 'all' || m === 'b1';
-    gB2.visible = m === 'all' || m === 'b2';
-  };
+    gB1.visible = (m === 'all' || m === 'b1') && !hiddenBy('b1');
+    gB2.visible = (m === 'all' || m === 'b2') && !hiddenBy('b2');
+    if (skyDome) skyDome.visible = qLevel > 0;
+    if (rampStub) rampStub.visible = hiddenBy('b1');
+  }
+  PT.setFloorMode = function (m) { floorMode = m; applyVisibility(); };
   // 逐层透视开关：关闭后该层楼板变为不透明，遮住下方楼层
   PT.setSee = function (layer, on) {
     see[layer] = on;
@@ -514,13 +605,14 @@
     floorMats.b2.opacity = see.b2 ? 0.62 : 1;
     // 不透视的楼板写入深度，彻底挡住下方的车辆、线条和灯光
     groundMat.depthWrite = !see.ground; floorMats.b1.depthWrite = !see.b1; floorMats.b2.depthWrite = !see.b2;
+    applyVisibility();
   };
   PT.getSee = () => see;
   PT.getFloorMode = () => floorMode;
   PT.carVisible = function (y) {
-    if (floorMode === 'all') return true;
     const lv = y > -2.5 ? 'ground' : y > -7.5 ? 'b1' : 'b2';
-    return lv === floorMode;
+    if (floorMode !== 'all') return lv === floorMode;
+    return lv === 'ground' || !hiddenBy(lv);
   };
 
   /* ---------- 车辆模型 ---------- */
@@ -534,6 +626,9 @@
     carMat.monthly = [0x2fb8ff, 0x4f8dff, 0x38d6e8].map(mk);
     carMat.temp = [0xffb02e, 0xff8a3d, 0xffd24a].map(mk);
     carMat.decor = [mk(0x6f86a6)];
+    carPaint.push(...carMat.monthly, ...carMat.temp, ...carMat.decor);
+    carGeo.blob = new T.PlaneGeometry(3.4, 6.4); carGeo.blob.rotateX(-Math.PI / 2);
+    carMat.blob = new T.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false });
     carMat.alarm = PT.alarmMat = new T.MeshStandardMaterial({ color: 0xff2d44, emissive: 0xff2d44, emissiveIntensity: 1 });
     carMat.cab = new T.MeshStandardMaterial({ color: 0x0b1930, roughness: 0.2, metalness: 0.6 });
     carMat.front = new T.MeshBasicMaterial({ color: 0xfff3c4 });
@@ -547,7 +642,10 @@
     const f = new T.Mesh(carGeo.lamp, carMat.front); f.position.set(0, 0.56, 2.21);
     const r = new T.Mesh(carGeo.lamp, carMat.rear); r.position.set(0, 0.56, -2.21);
     const beam = new T.Mesh(carGeo.beam, beamMat); beam.position.y = 0.5; beam.renderOrder = 8;
-    g.add(body, cab, f, r, beam);
+    // 车底柔和暗斑：没有实时阴影时也有贴地感
+    const blob = new T.Mesh(carGeo.blob, carMat.blob); blob.position.y = 0.05; blob.renderOrder = 8;
+    body.castShadow = cab.castShadow = true; body.receiveShadow = true;
+    g.add(body, cab, f, r, beam, blob);
     g.userData.body = body; g.userData.baseMat = body.material;
     return g;
   };
