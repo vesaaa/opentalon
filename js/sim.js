@@ -77,8 +77,8 @@
       V(36, b, 16), V(-36, b, 16), V(-36, b, 4), V(-4, b, 4), V(-4, b, -20), V(-36, b, -20), V(-36, b, -8), V(-26, b, -8), V(-8, a, -8), V(-4, a, -8),
       V(-4, a, -36), V(-10, a, -36)];
   }
-  // 地面：东侧入口 → 沿楼东侧北行 → 北侧西行 → 入库坡道；出库后北侧西行 → 沿楼西侧南行 → 西侧出口
-  const surfaceIn = (x) => [V(112, 0, C.ROAD_Z), V(x, 0, C.ROAD_Z), V(x, 0, 14), V(C.RING, 0, 6), V(C.RING, 0, C.NORTH), V(28, 0, C.NORTH)];
+  // 地面：入口（楼前右侧）→ 进闸后右转东行 → 沿楼东侧北行 → 北侧西行 → 入库坡道；出库后北侧西行 → 沿楼西侧南行 → 西侧出口
+  const surfaceIn = (x) => [V(112, 0, C.ROAD_Z), V(x, 0, C.ROAD_Z), V(x, 0, 38), V(C.RING, 0, 38), V(C.RING, 0, C.NORTH), V(28, 0, C.NORTH)];
   const SPLIT = V(-C.RING, 0, 4);   // 西侧分道口：到这里再选出口车道
   const surfaceOut = [V(-28, 0, C.NORTH), V(-C.RING, 0, C.NORTH), SPLIT];
   const lanes = {};
@@ -119,11 +119,11 @@
   /* ---------- 闸机 ---------- */
   function makeGate(id, name, kind, x, booth) {
     const g = {
-      id, name, kind, x, booth,
+      id, name, kind, x, booth, z: kind === 'in' ? C.IN_Z : C.GATE_Z,
       current: null, phase: 'idle', timer: 0, openAmt: 0, wantOpen: false,
       anomaly: null, pending: null, stat: { count: 0, income: 0 }, last: null, line2: '', line3: '', tone: 'idle',
     };
-    g.stop = V(g.x, 0, kind === 'in' ? C.GATE_Z + 3.6 : C.GATE_Z - 3.6);
+    g.stop = V(g.x, 0, kind === 'in' ? g.z + 3.6 : g.z - 3.6);
     g.vis = PT.buildGate(g);
     sim.gates[id] = g;
     board(g, '— —', '空闲', 'idle');
@@ -412,6 +412,12 @@
         const lat2 = dv.lengthSq() - f * f;
         if (lat2 > 2.25 && !(lat2 < 9 && f < 4.2)) continue;
         lead = o; lf = f;
+      }
+    }
+    // 进闸后要右转并入东行车道：让行已经在这条车道上、从左侧车道开过来的车
+    if (c.state === 'arriving' && c.cleared && c.pos.y > -0.5 && c.pos.z > 39.8 && c.pos.z < 44.5 && c.tan.z < -0.9) {
+      for (const o of sim.cars) {
+        if (o !== c && o.state === 'arriving' && Math.abs(o.pos.z - 38) < 2 && o.pos.x > c.pos.x - 9 && o.pos.x < c.pos.x + 2.5) { vmax = 0; break; }
       }
     }
     const stubHold = c.stub && mergeBlocked(c);

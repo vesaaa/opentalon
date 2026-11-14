@@ -7,7 +7,7 @@
     Y1: -5, Y2: -10,          // B1 / B2 楼面标高
     GATE_Z: 40,               // 道闸所在 z
     ROAD_Z: 52,               // 市政道路（西行车道）z
-    IN: [38, 42, 46],         // 东侧三条入口车道 x
+    IN: [15, 19, 23], IN_Z: 42, // 三条入口车道 x 与道闸 z：在楼前右侧草坪的南边，进闸后先右转
     OUT: [-38, -42, -46],     // 西侧三条出口车道 x
     RING: 42, NORTH: -36,     // 绕楼单向环路：东侧北行 → 北侧西行 → 西侧南行
   });
@@ -320,16 +320,17 @@
     roadMat = new T.MeshStandardMaterial({ map: TEX.asphalt, transparent: true, opacity: 1, depthWrite: false, roughness: 0.9 });
     bumpList.push([roadMat, TEX.asphalt, 2]);
     flat(300, 12, roadMat, 0, 0.03, 54, 8, 4);
-    for (const sx of [-1, 1]) {
-      flat(13, 44, roadMat, sx * 42, 0.03, 26, 8, 4);          // 闸口广场（三车道）
-      flat(5, 42.5, roadMat, sx * 42, 0.03, -17.25, 8, 4);     // 东 / 西侧环路
-      flat(16.5, 5, roadMat, sx * 36.25, 0.03, C.NORTH, 8, 4); // 北侧环路（坡道口两端）
-    }
+    flat(13, 44, roadMat, -42, 0.03, 26, 8, 4);               // 西侧出口广场（三车道）
+    flat(5, 42.5, roadMat, -42, 0.03, -17.25, 8, 4);          // 西侧环路
+    flat(13, 12.5, roadMat, 19, 0.03, 41.75, 8, 4);           // 入口广场（三车道，草坪南侧）
+    flat(19, 5, roadMat, 35, 0.03, 38, 8, 4);                 // 进闸后右转的东行车道
+    flat(5, 79, roadMat, 42, 0.03, 1, 8, 4);                  // 东侧环路（北行）
+    for (const sx of [-1, 1]) flat(16.5, 5, roadMat, sx * 36.25, 0.03, C.NORTH, 8, 4); // 北侧环路（坡道口两端）
     flat(20, 5, roadMat, 0, 0.03, C.NORTH, 8, 4);
 
     // 草坪与树
     lawnMat = new T.MeshStandardMaterial({ map: TEX.grass, transparent: true, opacity: 0.6, depthWrite: false, roughness: 1 });
-    const lawns = [[-56, 3, 8, 86], [56, 3, 8, 86], [-34.5, -14, 6.5, 34], [34.5, -14, 6.5, 34], [-19, 32, 22, 22], [19, 32, 22, 22]];
+    const lawns = [[-56, 3, 8, 86], [56, 3, 8, 86], [-34.5, -14, 6.5, 34], [34.5, -14, 6.5, 34], [-19, 32, 22, 22], [19, 27.5, 22, 13]];
     const trunkM = new T.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
     const leafM = new T.MeshStandardMaterial({ color: 0x3f8a45, roughness: 0.9, flatShading: true });
     const spots = [];
@@ -358,8 +359,9 @@
     lineSegs([-62, 0.06, -42, 62, 0.06, -42, 62, 0.06, -42, 62, 0.06, 48, -62, 0.06, 48, -62, 0.06, -42], 0x4cc9ff, 0.5, gSurface);
     // 车道分隔线与停止线
     const dl = [];
-    for (const sx of [-1, 1]) for (const x of [36, 40, 44, 48]) dl.push(sx * x, 0.06, 16, sx * x, 0.06, 48);
-    for (const x of C.IN) dl.push(x - 1.8, 0.06, C.GATE_Z + 1.2, x + 1.8, 0.06, C.GATE_Z + 1.2);
+    for (const x of [36, 40, 44, 48]) dl.push(-x, 0.06, 16, -x, 0.06, 48);
+    for (const x of [13, 17, 21, 25]) dl.push(x, 0.06, 40.5, x, 0.06, 48);
+    for (const x of C.IN) dl.push(x - 1.8, 0.06, C.IN_Z + 1.2, x + 1.8, 0.06, C.IN_Z + 1.2);
     for (const x of C.OUT) dl.push(x - 1.8, 0.06, C.GATE_Z - 1.2, x + 1.8, 0.06, C.GATE_Z - 1.2);
     lineSegs(dl, 0xffffff, 0.7, gSurface);
   }
@@ -715,10 +717,10 @@
 
   /* ---------- 闸机模型 ---------- */
   PT.buildGate = function (gate) {
-    const z = C.GATE_Z, dirX = 1;
+    const z = gate.z, dirX = 1;
     const postMat = new T.MeshStandardMaterial({ color: 0x2c6cab, emissive: 0x143a66, emissiveIntensity: 0.6 });
     if (gate.booth) {
-      const booth = box(1.5, 2.8, 2.6, new T.MeshStandardMaterial({ color: 0x1d4b7d, transparent: true, opacity: 0.9 }), gate.x > 0 ? 49.6 : -49.6, 1.4, z + 0.2, gSurface);
+      const booth = box(1.5, 2.8, 2.6, new T.MeshStandardMaterial({ color: 0x1d4b7d, transparent: true, opacity: 0.9 }), gate.x + (gate.x > 0 ? 3.3 : -3.6), 1.4, z + 0.2, gSurface);
       edges(booth, 0x7fe0ff, 0.95);
     }
     const postX = gate.x - dirX * 1.75;
