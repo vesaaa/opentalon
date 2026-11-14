@@ -11,7 +11,7 @@
   <canvas id="view" aria-label="停车场三维场景"></canvas>
   <div id="hud">
     <header class="topbar glass">
-      <div class="brand"><h1>园区停车数字孪生</h1><span>A 座办公楼 · 地下两层 · 2 进 2 出</span></div>
+      <div class="brand"><h1>园区停车数字孪生</h1><span>A 座办公楼 · 地下两层 · 3 进 3 出</span></div>
       <div class="stats">
         <div><span>在场车辆</span><b id="sCars">0</b></div>
         <div><span>B1 空位</span><b id="sB1">0</b></div>
@@ -48,7 +48,7 @@
       <section>
         <h2>异常场景</h2>
         <div class="row"><label for="trigGate">出口</label>
-          <select id="trigGate"><option value="any">随机出口</option><option value="WO">西出口</option><option value="EO">东出口</option></select></div>
+          <select id="trigGate"><option value="any">随机出口</option><option value="O1">出口 1</option><option value="O2">出口 2</option><option value="O3">出口 3</option></select></div>
         <button id="trigDispute" class="btn warn wide">触发：费用争议</button>
         <button id="trigStuck" class="btn warn wide">触发：已缴费未抬杆</button>
         <button id="trigArrears" class="btn warn wide">触发：欠费追缴</button>

@@ -308,7 +308,7 @@
     if ((uiT += rdt) > 0.25) { uiT = 0; renderStats(); renderAlerts(false); renderPanel(); if (modal && !(sim.gates[modal.gateId].anomaly)) closeModal(); }
     requestAnimationFrame(frame);
   }
-  sim.onLog('系统启动：2 进 2 出，B1 / B2 共 128 个车位');
+  sim.onLog('系统启动：东侧 3 进、西侧 3 出，B1 / B2 共 128 个车位');
   renderStats();
   requestAnimationFrame(frame);
 })();

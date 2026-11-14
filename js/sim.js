@@ -68,26 +68,24 @@
     return bs;
   };
 
-  // 西侧车库环线（东侧为镜像后反向，保证靠右行驶）
-  function loopW(level) {
+  // 车库内是一条不交叉的单向蛇形路线：从北侧入库坡道底（东）出发，绕遍东、西两个半区的全部过道，
+  // 回到北侧出库坡道底（西）。B2 的车在 B1 中途经东侧坡道下行，绕完 B2 后经西侧坡道回到 B1。
+  function loop(level) {
     const a = C.Y1, b = C.Y2;
-    if (level === 1) return [V(-36, a, 12), V(-36, a, 4), V(-4, a, 4), V(-4, a, -20), V(-40, a, -20), V(-40, a, 12)];
-    return [V(-36, a, 12), V(-36, a, 4), V(-4, a, 4), V(-4, a, -6), V(-8, a, -6), V(-26, b, -6), V(-34, b, -6), V(-34, b, 4),
-      V(-4, b, 4), V(-4, b, -20), V(-34, b, -20), V(-34, b, -10), V(-26, b, -10), V(-8, a, -10), V(-4, a, -10),
-      V(-4, a, -20), V(-40, a, -20), V(-40, a, 12)];
+    if (level === 1) return [V(10, a, -36), V(4, a, -36), V(4, a, -20), V(36, a, -20), V(36, a, 4), V(-36, a, 4), V(-36, a, -20), V(-4, a, -20), V(-4, a, -36), V(-10, a, -36)];
+    return [V(10, a, -36), V(4, a, -36), V(4, a, -8), V(8, a, -8), V(26, b, -8), V(36, b, -8), V(36, b, -20), V(4, b, -20), V(4, b, 4), V(36, b, 4),
+      V(36, b, 16), V(-36, b, 16), V(-36, b, 4), V(-4, b, 4), V(-4, b, -20), V(-36, b, -20), V(-36, b, -8), V(-26, b, -8), V(-8, a, -8), V(-4, a, -8),
+      V(-4, a, -36), V(-10, a, -36)];
   }
-  const routeCache = {};
-  function rawRoute(side, level) {
-    const key = side + level;
-    if (routeCache[key]) return routeCache[key];
-    let loop = loopW(level);
-    if (side === 'E') loop = loop.map((p) => V(-p.x, p.y, p.z)).reverse();
-    const xe = loop[0].x, xx = loop[loop.length - 1].x;
-    return (routeCache[key] = [V(112, 0, C.ROAD_Z), V(xe, 0, C.ROAD_Z), V(xe, 0, 30), ...loop, V(xx, 0, 30), V(xx, 0, C.ROAD_Z), V(-125, 0, C.ROAD_Z)]);
-  }
+  // 地面：东侧入口 → 沿楼东侧北行 → 北侧西行 → 入库坡道；出库后北侧西行 → 沿楼西侧南行 → 西侧出口
+  const surfaceIn = (x) => [V(112, 0, C.ROAD_Z), V(x, 0, C.ROAD_Z), V(x, 0, 14), V(C.RING, 0, 6), V(C.RING, 0, C.NORTH), V(28, 0, C.NORTH)];
+  const SPLIT = V(-C.RING, 0, 4);   // 西侧分道口：到这里再选出口车道
+  const surfaceOut = [V(-28, 0, C.NORTH), V(-C.RING, 0, C.NORTH), SPLIT];
+  const lanes = {};
+  const lanePath = (g) => lanes[g.id] || (lanes[g.id] = new Path([SPLIT, V(g.x, 0, 12), V(g.x, 0, C.ROAD_Z), V(-125, 0, C.ROAD_Z)]));
   function slotPaths(slot) {
     if (slot._p) return slot._p;
-    const raw = rawRoute(slot.side, slot.level);
+    const raw = loop(slot.level);
     const ap = V(slot.x, slot.y, slot.aisleZ), sc = V(slot.x, slot.y, slot.z);
     let idx = -1;
     for (let i = 0; i < raw.length - 1; i++) {
@@ -97,18 +95,31 @@
     }
     const u = raw[idx + 1].clone().sub(raw[idx]).normalize();
     const back = ap.clone().addScaledVector(u, -4.5);
+    const pre = raw.slice(0, idx + 1).concat([ap, sc]), post = [back].concat(raw.slice(idx + 1));
+    const ins = {}, outs = {};
     return (slot._p = {
       u,
-      entry: new Path(raw.slice(0, idx + 1).concat([ap, sc])),
       back: new Path([sc, ap, back]),
-      exit: new Path([back].concat(raw.slice(idx + 1))),
+      entry: (g) => ins[g.id] || (ins[g.id] = new Path(surfaceIn(g.x).concat(pre))),
+      exit: () => outs.p || (outs.p = new Path(post.concat(surfaceOut))),
     });
+  }
+  // 选车道：挑当前车最少的闸口；有预置异常的出口优先让临时车去
+  function pickGate(kind, car) {
+    const list = Object.values(sim.gates).filter((g) => g.kind === kind);
+    if (kind === 'out' && car.type === 'temp') { const p = list.find((g) => g.pending && !g.anomaly); if (p) return p; }
+    let best = null, bn = 1e9;
+    for (const g of list) {
+      const n = sim.cars.filter((c) => c.gate === g).length + Math.random() * 0.5;
+      if (n < bn) { bn = n; best = g; }
+    }
+    return best;
   }
 
   /* ---------- 闸机 ---------- */
-  function makeGate(id, name, side, kind) {
+  function makeGate(id, name, kind, x, booth) {
     const g = {
-      id, name, side, kind, x: kind === 'in' ? C.XE[side] : C.XX[side],
+      id, name, kind, x, booth,
       current: null, phase: 'idle', timer: 0, openAmt: 0, wantOpen: false,
       anomaly: null, pending: null, stat: { count: 0, income: 0 }, last: null, line2: '', line3: '', tone: 'idle',
     };
@@ -249,8 +260,8 @@
     board(g, c.plate, `¥${c.fee} 追缴中`, 'busy');
   };
   sim.trigger = function (type, target) {
-    let outs = [sim.gates.WO, sim.gates.EO];
-    if (target === 'WO' || target === 'EO') outs = [sim.gates[target]];
+    let outs = [sim.gates.O1, sim.gates.O2, sim.gates.O3];
+    if (sim.gates[target]) outs = [sim.gates[target]];
     outs = outs.filter((g) => !g.anomaly && !g.pending);
     if (!outs.length) return '所选出口已有异常或已在等待触发';
     const paying = outs.find((g) => g.phase === 'paying' && g.current && !g.current.plan && !g.current.paid);
@@ -261,9 +272,9 @@
     }
     const g = outs[(Math.random() * outs.length) | 0];
     g.pending = type;
-    const coming = sim.cars.some((c) => c.type === 'temp' && c.side === g.side && (c.state === 'leaving' || c.state === 'backing'));
+    const coming = sim.cars.some((c) => c.type === 'temp' && (c.state === 'backing' || (c.state === 'leaving' && (c.stage === 1 || c.gate === g))));
     if (!coming) {
-      const parked = sim.cars.filter((c) => c.type === 'temp' && c.side === g.side && c.state === 'parked').sort((a, b) => a.timer - b.timer)[0];
+      const parked = sim.cars.filter((c) => c.type === 'temp' && c.state === 'parked').sort((a, b) => a.timer - b.timer)[0];
       if (parked) parked.timer = 0;
     }
     return `${g.name}：下一辆出场的临时车将触发「${ANOMALY[type].name}」`;
@@ -323,14 +334,14 @@
   }
   function trySpawn() {
     for (const o of sim.cars) if (o.state === 'arriving' && o.pos.x > 96) return;
-    const side = Math.random() < 0.5 ? 'W' : 'E';
-    if (sim.cars.filter((c) => c.state === 'arriving' && c.side === side && c.stopS != null).length >= 3) return;
-    const free = PT.SLOTS.filter((s) => s.side === side && !s.car);
+    if (sim.cars.filter((c) => c.state === 'arriving' && c.stopS != null).length >= 5) return;
+    const free = PT.SLOTS.filter((s) => !s.car);
     if (!free.length) return;
     const slot = free[(Math.random() * free.length) | 0];
     const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', slot);
     c.state = 'arriving';
-    setPath(c, slotPaths(slot).entry, sim.gates[side + 'I']);
+    const gate = pickGate('in', c);
+    setPath(c, slotPaths(slot).entry(gate), gate);
     c.dir.copy(c.tan); c.v = 7;
   }
   // 倒车出库前检查过道：车尾会摆向上游，所以上游方向要留出更长的空档
@@ -350,19 +361,16 @@
     sim.cars.splice(sim.cars.indexOf(c), 1);
   }
 
-  // B2 返回 B1 的匝道口：匝道车让行中央通道直行车，直行车不受匝道车影响
+  // B2 回到 B1 后沿 x=-4 北行，在 z=-20 与 B1 西区过道的车流汇合：匝道来车让行，过道车不受其影响
   function inStub(c) {
-    if (Math.abs(c.pos.y - C.Y1) > 0.8) return false;
-    const ax = Math.abs(c.pos.x);
-    return ax > 5.4 && ax < 10 && Math.abs(c.pos.z - (c.pos.x < 0 ? -10 : -6)) < 1.5;
+    return Math.abs(c.pos.y - C.Y1) < 0.8 && Math.abs(c.pos.x + 4) < 1.2 && c.pos.z > -17.5 && c.pos.z < -6;
   }
   function mergeBlocked(c) {
-    const W = c.pos.x < 0, mz = W ? -10 : -6, dir = W ? -1 : 1;
+    if (c.pos.z > -11) return false;            // 还没到路口，继续往前开
     for (const o of sim.cars) {
       if (o === c || o.state === 'parked' || Math.abs(o.pos.y - C.Y1) > 0.8) continue;
-      if (o.pos.x < 0 !== W || Math.abs(Math.abs(o.pos.x) - 4) > 1.4) continue;
-      const rel = (o.pos.z - mz) * dir;
-      if (rel > -9 && rel < 3.5) return true;
+      if (Math.abs(o.pos.z + 20) < 2.2 && o.pos.x > -15 && o.pos.x < -2.5) return true;
+      if (Math.abs(o.pos.x + 4) < 1.4 && o.pos.z < -18 && o.pos.z > -25) return true;
     }
     return false;
   }
@@ -406,15 +414,19 @@
         lead = o; lf = f;
       }
     }
-    if (c.stub && mergeBlocked(c)) vmax = 0;
+    const stubHold = c.stub && mergeBlocked(c);
+    if (stubHold) vmax = 0;
     // 出闸后汇入市政道路：让行正在驶来的车辆
     if (c.state === 'leaving' && !c.gate && c.pos.z > 43 && c.pos.z < 47.5 && c.tan.z > 0.9) {
       for (const o of sim.cars) {
-        if (o !== c && o.v > 1 && Math.abs(o.pos.z - C.ROAD_Z) < 2.5 && o.pos.x > c.pos.x - 3 && o.pos.x < c.pos.x + 16) { vmax = 0; break; }
+        if (o === c) continue;
+        if (o.v > 1 && Math.abs(o.pos.z - C.ROAD_Z) < 2.5 && o.pos.x > c.pos.x - 3 && o.pos.x < c.pos.x + 16) { vmax = 0; break; }
+        // 相邻出口车道同时出闸：让内侧（上游）车道的车先汇入
+        if (o.state === 'leaving' && o.stage === 2 && !o.gate && o.pos.x > c.pos.x + 2 && o.pos.x < c.pos.x + 10 && o.pos.z > c.pos.z - 1 && o.pos.z < 50) { vmax = 0; break; }
       }
     }
     if (lead) { const gap = lead.reverse ? GAP + 3.5 : GAP; vmax = Math.min(vmax, lf < gap ? 0 : (lf - gap) * 1.7); }
-    c.chain = holding ? 1 : lead && lf < GAP + 1.5 && lead.chain > 0 && lead.chain < 80 ? lead.chain + 1 : 0;
+    c.chain = holding || stubHold ? 1 : lead && lf < GAP + 1.5 && lead.chain > 0 && lead.chain < 80 ? lead.chain + 1 : 0;
     if (lead && vmax < 0.2 && !c.chain) {
       if ((c.blockT += dt) > 6) { c.ghost = 2.5; c.blockT = 0; }
     } else c.blockT = 0;
@@ -428,8 +440,12 @@
       if (c.state === 'arriving') { c.timer = rand(50, 200); placeParked(c); }
       else if (c.state === 'backing') {
         c.slot.car = null; PT.setSlotLight(c.slot, false);
-        c.state = 'leaving'; c.reverse = false;
-        setPath(c, slotPaths(c.slot).exit, sim.gates[c.side + 'O']);
+        c.state = 'leaving'; c.reverse = false; c.stage = 1;
+        setPath(c, slotPaths(c.slot).exit(), null);
+      } else if (c.stage === 1) {
+        // 开到西侧分道口才选出口车道：挑排队最少的，不会都挤到被堵的那条
+        const v = c.v, gate = pickGate('out', c);
+        c.stage = 2; setPath(c, lanePath(gate), gate); c.v = v;
       } else c.dead = true;
     }
   }
@@ -448,9 +464,9 @@
   /* ---------- 对外接口 ---------- */
   let spawnT = 1, chargeT = 1;
   sim.init = function () {
-    makeGate('WI', '西入口', 'W', 'in'); makeGate('WO', '西出口', 'W', 'out');
-    makeGate('EI', '东入口', 'E', 'in'); makeGate('EO', '东出口', 'E', 'out');
-    for (const side of ['W', 'E']) for (const lv of [1, 2]) PT.addFlowLine(new Path(rawRoute(side, lv)).pts, lv);
+    C.IN.forEach((x, i) => makeGate('I' + (i + 1), '入口 ' + (i + 1), 'in', x, i === 2));
+    C.OUT.forEach((x, i) => makeGate('O' + (i + 1), '出口 ' + (i + 1), 'out', x, i === 2));
+    for (const lv of [1, 2]) PT.addFlowLine(new Path(surfaceIn(C.RING).concat(loop(lv), surfaceOut, [V(-C.RING, 0, C.ROAD_Z), V(-125, 0, C.ROAD_Z)])).pts, lv);
     const pool = PT.SLOTS.slice().sort(() => Math.random() - 0.5).slice(0, 56);
     for (const s of pool) {
       const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', s);

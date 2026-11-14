@@ -7,8 +7,9 @@
     Y1: -5, Y2: -10,          // B1 / B2 楼面标高
     GATE_Z: 40,               // 道闸所在 z
     ROAD_Z: 52,               // 市政道路（西行车道）z
-    XE: { W: -36, E: 40 },    // 入口车道 x
-    XX: { W: -40, E: 36 },    // 出口车道 x
+    IN: [38, 42, 46],         // 东侧三条入口车道 x
+    OUT: [-38, -42, -46],     // 西侧三条出口车道 x
+    RING: 42, NORTH: -36,     // 绕楼单向环路：东侧北行 → 北侧西行 → 西侧南行
   });
   const lerp = (a, b, k) => a + (b - a) * k;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -141,6 +142,7 @@
     buildTextures();
     buildGround();
     buildBuilding();
+    buildShop();
     buildLevel(C.Y1, gB1, 1, 'B1');
     buildLevel(C.Y2, gB2, 2, 'B2');
     buildRamps();
@@ -304,8 +306,8 @@
     // 地面在两侧坡道上方留出洞口，地面不透视时车辆仍能看着驶入地库
     const shape = new T.Shape([new T.Vector2(-150, -150), new T.Vector2(150, -150), new T.Vector2(150, 150), new T.Vector2(-150, 150)]);
     for (const sx of [-1, 1]) {
-      const a = sx * 34, b = sx * 42;
-      shape.holes.push(new T.Path([new T.Vector2(a, -30), new T.Vector2(b, -30), new T.Vector2(b, -12.4), new T.Vector2(a, -12.4)]));
+      const a = sx * 10.4, b = sx * 28;   // 北侧：东边是入库坡道（约 1 点钟方向），西边是出库坡道
+      shape.holes.push(new T.Path([new T.Vector2(a, 33.5), new T.Vector2(b, 33.5), new T.Vector2(b, 38.5), new T.Vector2(a, 38.5)]));
     }
     const gg = new T.ShapeGeometry(shape); planeUV(gg, 1 / 6, 1 / 6);
     const ground = new T.Mesh(gg, groundMat);
@@ -318,11 +320,16 @@
     roadMat = new T.MeshStandardMaterial({ map: TEX.asphalt, transparent: true, opacity: 1, depthWrite: false, roughness: 0.9 });
     bumpList.push([roadMat, TEX.asphalt, 2]);
     flat(300, 12, roadMat, 0, 0.03, 54, 8, 4);
-    for (const sx of [-38, 38]) flat(8.6, 18, roadMat, sx, 0.03, 39, 8, 4);
+    for (const sx of [-1, 1]) {
+      flat(13, 44, roadMat, sx * 42, 0.03, 26, 8, 4);          // 闸口广场（三车道）
+      flat(5, 42.5, roadMat, sx * 42, 0.03, -17.25, 8, 4);     // 东 / 西侧环路
+      flat(16.5, 5, roadMat, sx * 36.25, 0.03, C.NORTH, 8, 4); // 北侧环路（坡道口两端）
+    }
+    flat(20, 5, roadMat, 0, 0.03, C.NORTH, 8, 4);
 
     // 草坪与树
     lawnMat = new T.MeshStandardMaterial({ map: TEX.grass, transparent: true, opacity: 0.6, depthWrite: false, roughness: 1 });
-    const lawns = [[-53, 3, 14, 84], [53, 3, 14, 84], [0, -37, 88, 8], [-19, 32, 22, 22], [19, 32, 22, 22]];
+    const lawns = [[-56, 3, 8, 86], [56, 3, 8, 86], [-34.5, -14, 6.5, 34], [34.5, -14, 6.5, 34], [-19, 32, 22, 22], [19, 32, 22, 22]];
     const trunkM = new T.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
     const leafM = new T.MeshStandardMaterial({ color: 0x3f8a45, roughness: 0.9, flatShading: true });
     const spots = [];
@@ -351,11 +358,9 @@
     lineSegs([-62, 0.06, -42, 62, 0.06, -42, 62, 0.06, -42, 62, 0.06, 48, -62, 0.06, 48, -62, 0.06, -42], 0x4cc9ff, 0.5, gSurface);
     // 车道分隔线与停止线
     const dl = [];
-    for (const sx of [-38, 38]) dl.push(sx, 0.06, 30, sx, 0.06, 48);
-    for (const k of ['W', 'E']) {
-      dl.push(C.XE[k] - 1.8, 0.06, C.GATE_Z + 1.2, C.XE[k] + 1.8, 0.06, C.GATE_Z + 1.2);
-      dl.push(C.XX[k] - 1.8, 0.06, C.GATE_Z - 1.2, C.XX[k] + 1.8, 0.06, C.GATE_Z - 1.2);
-    }
+    for (const sx of [-1, 1]) for (const x of [36, 40, 44, 48]) dl.push(sx * x, 0.06, 16, sx * x, 0.06, 48);
+    for (const x of C.IN) dl.push(x - 1.8, 0.06, C.GATE_Z + 1.2, x + 1.8, 0.06, C.GATE_Z + 1.2);
+    for (const x of C.OUT) dl.push(x - 1.8, 0.06, C.GATE_Z - 1.2, x + 1.8, 0.06, C.GATE_Z - 1.2);
     lineSegs(dl, 0xffffff, 0.7, gSurface);
   }
 
@@ -413,14 +418,14 @@
   /* ---------- 地下楼层 ---------- */
   function buildLevel(y, grp, level, name) {
     const fm = new T.MeshStandardMaterial({ map: TEX.concrete, color: 0x9db4d2, transparent: true, opacity: 0.62, depthWrite: false, roughness: 0.85 });
-    const fg = new T.PlaneGeometry(96, 66); planeUV(fg, 12, 8.25);
+    const fg = new T.PlaneGeometry(96, 74); planeUV(fg, 12, 9.25);
     const f = new T.Mesh(fg, fm);
-    f.rotation.x = -Math.PI / 2; f.position.set(0, y, 1); f.renderOrder = level === 1 ? 2 : 1;
+    f.rotation.x = -Math.PI / 2; f.position.set(0, y, -3); f.renderOrder = level === 1 ? 2 : 1;
     floorMats[level === 1 ? 'b1' : 'b2'] = fm;
     grp.add(f);
-    const shell = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(96, 4.6, 66)),
+    const shell = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(96, 4.6, 74)),
       new T.LineBasicMaterial({ color: 0x4cc9ff, transparent: true, opacity: 0.6 }));
-    shell.position.set(0, y + 2.3, 1);
+    shell.position.set(0, y + 2.3, -3);
     grp.add(shell);
 
     // 车位线 + 占用指示灯
@@ -485,17 +490,48 @@
   function buildRamps() {
     const rm = new T.MeshStandardMaterial({ color: 0x56626f, transparent: true, opacity: 0.88, side: T.DoubleSide, depthWrite: false });
     for (const sx of [-1, 1]) {
-      // 地面 → B1
-      quad([sx * 34, 0, 30], [sx * 42, 0, 30], [sx * 42, C.Y1, 12], [sx * 34, C.Y1, 12], rm, gB1, 0x7fe0ff);
-      // B1 → B2
-      quad([sx * 8, C.Y1, -12], [sx * 8, C.Y1, -4], [sx * 26, C.Y2, -4], [sx * 26, C.Y2, -12], rm, gB2, 0x7fe0ff);
+      // 地面 ↔ B1：北侧环路上，东边入库、西边出库
+      quad([sx * 28, 0, -38.5], [sx * 28, 0, -33.5], [sx * 10, C.Y1, -33.5], [sx * 10, C.Y1, -38.5], rm, gB1, 0x7fe0ff);
+      // B1 ↔ B2：东边下行、西边上行
+      quad([sx * 8, C.Y1, -10.5], [sx * 8, C.Y1, -5.5], [sx * 26, C.Y2, -5.5], [sx * 26, C.Y2, -10.5], rm, gB2, 0x7fe0ff);
     }
   }
   // 流畅档不画地库时，用一块深色斜面填住坡道洞口，避免洞里露出天空色
   function buildRampStub() {
     rampStub = new T.Group(); rampStub.visible = false; gSurface.add(rampStub);
     const m = new T.MeshBasicMaterial({ color: 0x20262e, side: T.DoubleSide });
-    for (const sx of [-1, 1]) quad([sx * 34, 0, 30], [sx * 42, 0, 30], [sx * 42, C.Y1, 12.4], [sx * 34, C.Y1, 12.4], m, rampStub);
+    for (const sx of [-1, 1]) {
+      const x0 = sx * 28, x1 = sx * 10.4;
+      quad([x0, 0, -38.5], [x0, 0, -33.5], [x1, C.Y1, -33.5], [x1, C.Y1, -38.5], m, rampStub);
+      // 坡道坑的两侧墙和尽头墙
+      for (const z of [-38.5, -33.5]) quad([x0, 0, z], [x1, 0, z], [x1, C.Y1, z], [x1, C.Y1, z], m, rampStub);
+      quad([x1, 0, -38.5], [x1, 0, -33.5], [x1, C.Y1, -33.5], [x1, C.Y1, -38.5], m, rampStub);
+    }
+  }
+  /* ---------- 出入口之间的小餐厅 ---------- */
+  function buildShop() {
+    const wall = canvasTex(256, 128, (g, w, h) => {
+      g.fillStyle = '#f4efe6'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#c8102e'; g.fillRect(0, 0, w, 24);
+      for (let x = 0; x < w; x += 16) { g.fillStyle = (x / 16) % 2 ? '#c8102e' : '#ffffff'; g.fillRect(x, 24, 16, 12); }
+      g.fillStyle = '#27445f'; for (let x = 12; x < w; x += 64) g.fillRect(x, 52, 40, 60);
+      g.fillStyle = 'rgba(255,255,255,.18)'; for (let x = 12; x < w; x += 64) g.fillRect(x, 52, 14, 60);
+      g.fillStyle = '#8a8f96'; g.fillRect(0, h - 8, w, 8);
+    }).tex;
+    tile(wall);
+    const wm = new T.MeshStandardMaterial({ map: wall, roughness: 0.7 });
+    const red = new T.MeshStandardMaterial({ color: 0xc8102e, roughness: 0.6 });
+    const body = box(12, 4, 8, [wm, wm, red, red, wm, wm], 0, 2, 34, gSurface);
+    boxUV(body.geometry, 12, 4, 8, 12, 4, 12);
+    box(13.2, 0.5, 9.2, red, 0, 4.25, 34, gSurface);
+    const sign = textSprite(384, 128, 9);
+    const x = sign.ctx;
+    x.fillStyle = '#c8102e'; x.beginPath(); x.roundRect(4, 4, 376, 120, 18); x.fill();
+    x.strokeStyle = '#fff'; x.lineWidth = 5; x.stroke();
+    x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = '700 62px ' + PT.FONT; x.fillText('肯德基 KFC', 192, 66);
+    sign.tex.needsUpdate = true;
+    sign.sp.position.set(0, 7, 34); gSurface.add(sign.sp);
   }
   PT.addFlowLine = function (pts, level) {
     const g = new T.BufferGeometry().setFromPoints(pts.map((p) => new T.Vector3(p.x, p.y + 0.07, p.z)));
@@ -679,11 +715,10 @@
 
   /* ---------- 闸机模型 ---------- */
   PT.buildGate = function (gate) {
-    const ix = gate.side === 'W' ? -38 : 38, z = C.GATE_Z;
-    const dirX = gate.x > ix ? 1 : -1;
+    const z = C.GATE_Z, dirX = 1;
     const postMat = new T.MeshStandardMaterial({ color: 0x2c6cab, emissive: 0x143a66, emissiveIntensity: 0.6 });
-    if (gate.kind === 'in') {
-      const booth = box(1.5, 2.8, 2.6, new T.MeshStandardMaterial({ color: 0x1d4b7d, transparent: true, opacity: 0.9 }), ix, 1.4, z + 0.2, gSurface);
+    if (gate.booth) {
+      const booth = box(1.5, 2.8, 2.6, new T.MeshStandardMaterial({ color: 0x1d4b7d, transparent: true, opacity: 0.9 }), gate.x > 0 ? 49.6 : -49.6, 1.4, z + 0.2, gSurface);
       edges(booth, 0x7fe0ff, 0.95);
     }
     const postX = gate.x - dirX * 1.75;
@@ -694,10 +729,10 @@
     const lamp = new T.Mesh(new T.SphereGeometry(0.22, 12, 8), new T.MeshBasicMaterial({ color: 0xff4d5e }));
     lamp.position.set(postX, 1.55, z); gSurface.add(lamp);
 
-    const board = textSprite(320, 160, 5.6);
+    const board = textSprite(320, 160, 3.7);
     // 信息牌始终画在最上层，不被路面、告警光柱、岗亭等半透明物体盖住
     board.sp.material.depthTest = false; board.sp.renderOrder = 999;
-    board.sp.position.set(gate.x + dirX * 1.6, 5.4, gate.kind === 'in' ? z - 3 : z + 4.5); gSurface.add(board.sp);
+    board.sp.position.set(gate.x, 5.2, gate.kind === 'in' ? z - 3 : z + 4.5); gSurface.add(board.sp);
 
     const stopZ = gate.kind === 'in' ? z + 3.6 : z - 3.6;
     const alarm = new T.Group(); alarm.position.set(gate.x, 0, stopZ); alarm.visible = false; gSurface.add(alarm);
@@ -708,7 +743,7 @@
       new T.MeshBasicMaterial({ color: 0xff3048, transparent: true, opacity: 0.14, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending }));
     beam.position.y = 8; beam.renderOrder = 8; alarm.add(beam);
 
-    const hit = new T.Mesh(new T.BoxGeometry(4.4, 9, 9), new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+    const hit = new T.Mesh(new T.BoxGeometry(3.8, 9, 9), new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
     hit.position.set(gate.x, 4, z); hit.userData.gate = gate.id; gSurface.add(hit); hitBoxes.push(hit);
 
     return { pivot, dirX, lamp, board, alarm, ring, beam };
