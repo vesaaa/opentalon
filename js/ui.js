@@ -160,7 +160,7 @@
         <dt>充电时长</dt><dd>${fmtDur(ci.minutes)}</dd>
         <dt>充电费</dt><dd>¥${ci.fee}（¥1.2/kWh）</dd></dl></div>`;
     } else {
-      h += `<p class="empty">${!c.ev ? '燃油车，不需要充电。' : s.charger ? '该车位有充电桩，本车未充电。' : '该车位没有充电桩。'}</p>`;
+      h += `<p class="empty">${!c.ev ? (s.charger ? '燃油车占用了充电车位，充电桩黄灯闪烁警示。' : '燃油车，不需要充电。') : s.charger ? '该车位有充电桩，本车未充电。' : '该车位没有充电桩。'}</p>`;
     }
     $('panel').innerHTML = h;
   }

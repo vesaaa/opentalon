@@ -327,6 +327,8 @@
     path.at(0, c.pos, c.tan);
   }
   /* ---------- 充电 ---------- */
+  const blinkSlots = new Set();
+  let blinkOn = true;
   const KW = [7, 7, 11, 40];
   function startCharge(c, t0) {
     c.charge = { kw: KW[(Math.random() * KW.length) | 0], cap: 60, soc0: Math.round(rand(12, 65)), t0, t1: null, lit: 'on' };
@@ -336,6 +338,7 @@
   function stopCharge(c) {
     if (c.charge && c.charge.t1 == null) c.charge.t1 = sim.t;
     if (c.charge && c.charge.cable) { PT.removeCable(c.charge.cable); c.charge.cable = null; }
+    blinkSlots.delete(c.slot);
     PT.setChargerLight(c.slot, 'free');
   }
   sim.chargeInfo = function (c) {
@@ -354,7 +357,10 @@
     c.pos.set(s.x, s.y, s.z); c.dir.set(0, 0, Math.sign(s.z - s.aisleZ));
     PT.setSlotLight(s, true, c.type === 'temp');
     if (s.charger && c.ev && Math.random() < 0.85) startCharge(c, t0 == null ? sim.t : t0);
-    else PT.setChargerLight(s, 'occupied');
+    else {
+      PT.setChargerLight(s, 'occupied');
+      if (s.charger && !c.ev) blinkSlots.add(s);   // 燃油车占用充电车位：黄灯闪烁警示
+    }
   }
   function trySpawn() {
     for (const o of sim.cars) if (o.state === 'arriving' && o.pos.x > 96) return;
@@ -550,6 +556,8 @@
       }
       u.tailMat.color.setHex(moving && c.braking ? 0xff2030 : moving && PT.env.n > 0.5 ? 0xa51522 : 0x5e0c14);
     }
+    const on = Math.sin(now * 0.007) > 0;
+    if (on !== blinkOn) { blinkOn = on; for (const s of blinkSlots) PT.setChargerLight(s, on ? 'occupied' : 'dim'); }
     const sc = sim.selCar, ring = PT.selRing;
     ring.visible = !!sc && !sc.dead && sc.mesh.visible;
     if (ring.visible) { ring.position.set(sc.pos.x, sc.pos.y + 0.16, sc.pos.z); ring.scale.setScalar(1 + 0.06 * Math.sin(now * 0.006)); }

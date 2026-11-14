@@ -482,7 +482,7 @@
     lb.ctx.fillStyle = '#7fe0ff'; lb.ctx.fillText(name, 64, 34); lb.tex.needsUpdate = true;
     lb.sp.position.set(-53, y + 2.5, 34); grp.add(lb.sp);
   }
-  const CH_COL = { free: new T.Color(0x2ee66b), charging: new T.Color(0xff2d3d), occupied: new T.Color(0xffc21a) };
+  const CH_COL = { free: new T.Color(0x2ee66b), charging: new T.Color(0xff2d3d), occupied: new T.Color(0xffc21a), dim: new T.Color(0x4a3906) };
   PT.setChargerLight = function (slot, state) {
     if (!slot.cLight) return;
     for (const m of [slot.cLight, slot.cLamp]) { m.setColorAt(slot.cIdx, CH_COL[state]); m.instanceColor.needsUpdate = true; }
