@@ -122,7 +122,7 @@
     g.line2 = l2; g.line3 = l3; g.tone = tone;
     const b = g.vis.board, x = b.ctx, col = TONE[tone];
     x.clearRect(0, 0, 320, 160);
-    x.fillStyle = tone === 'alarm' ? 'rgba(60,6,14,.92)' : 'rgba(5,14,28,.9)';
+    x.fillStyle = tone === 'alarm' ? 'rgba(60,6,14,.96)' : 'rgba(5,14,28,.95)';
     x.strokeStyle = col; x.lineWidth = 5;
     x.beginPath(); x.roundRect(4, 4, 312, 152, 16); x.fill(); x.stroke();
     x.textAlign = 'center'; x.textBaseline = 'middle';

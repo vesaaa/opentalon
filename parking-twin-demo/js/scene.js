@@ -84,6 +84,7 @@
     const c = canvasTex(w, h);
     const sp = new T.Sprite(new T.SpriteMaterial({ map: c.tex, transparent: true, depthWrite: false }));
     sp.scale.set(worldW, (worldW * h) / w, 1);
+    sp.renderOrder = 50;
     c.sp = sp;
     return c;
   }
@@ -437,6 +438,8 @@
     lamp.position.set(postX, 1.55, z); gSurface.add(lamp);
 
     const board = textSprite(320, 160, 5.6);
+    // 信息牌始终画在最上层，不被路面、告警光柱、岗亭等半透明物体盖住
+    board.sp.material.depthTest = false; board.sp.renderOrder = 999;
     board.sp.position.set(gate.x + dirX * 1.6, 5.4, gate.kind === 'in' ? z - 3 : z + 4.5); gSurface.add(board.sp);
 
     const stopZ = gate.kind === 'in' ? z + 3.6 : z - 3.6;
