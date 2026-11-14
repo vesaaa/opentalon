@@ -283,25 +283,46 @@
   /* ---------- 车辆 ---------- */
   let carId = 0;
   const CH = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
-  function plate() {
-    let s = '粤B·';
-    for (let i = 0; i < 5; i++) s += CH[(Math.random() * (i === 0 ? 24 : CH.length)) | 0];
+  function plate(ev) {
+    // 新能源车牌比普通车牌多一位，首位为 D / F
+    let s = '粤B·' + (ev ? (Math.random() < 0.7 ? 'D' : 'F') : '');
+    for (let i = 0; i < 5; i++) s += CH[(Math.random() * (i === 0 && !ev ? 24 : CH.length)) | 0];
     return s;
   }
-  function newCar(type, slot) {
+  const makeLook = (type, ev) => ({ type, ev, model: (Math.random() * PT.CAR_MODELS.length) | 0, color: (Math.random() * PT.CAR_PAINTS) | 0, plate: plate(ev) });
+  function newCar(type, slot, ev) {
+    const look = makeLook(type, ev);
     const c = {
-      id: ++carId, plate: plate(), type, side: slot.side, slot, state: '', path: null, s: 0, v: 0,
-      pos: V(0, 0, 0), dir: V(0, 0, 1), tan: V(0, 0, 1), mesh: PT.makeCarMesh(type),
+      id: ++carId, plate: look.plate, type, ev, look, side: slot.side, slot, state: '', path: null, s: 0, v: 0,
+      pos: V(0, 0, 0), dir: V(0, 0, 1), tan: V(0, 0, 1), mesh: PT.makeCarMesh(look),
       stopS: null, cleared: false, gate: null, timer: 0, enterT: sim.t, fee: 0, paid: false, plan: null,
-      chain: 0, blockT: 0, ghost: 0, reverse: false, charge: null, entered: false,
+      chain: 0, blockT: 0, ghost: 0, reverse: false, charge: null, entered: false, braking: false, spin: 0, steer: 0, ls: 0,
     };
     slot.car = c; c.mesh.userData.car = c;
     PT.groups.cars.add(c.mesh);
     sim.cars.push(c);
     return c;
   }
+  // 新能源车优先挑有充电桩的车位
+  function pickSlot(ev) {
+    const free = PT.SLOTS.filter((s) => !s.car);
+    if (!free.length) return null;
+    const pref = free.filter((s) => s.charger === ev);
+    const pool = pref.length && Math.random() < 0.8 ? pref : free;
+    return pool[(Math.random() * pool.length) | 0];
+  }
+  // 画质在「流畅」与其他档之间切换时，把现有车辆换成对应精度的车模
+  sim.remesh = function () {
+    for (const c of sim.cars) {
+      const old = c.mesh, m = PT.makeCarMesh(c.look);
+      m.userData.car = c; m.position.copy(old.position); m.quaternion.copy(old.quaternion);
+      if (old.userData.body.material === PT.alarmMat) m.userData.body.material = PT.alarmMat;
+      PT.groups.cars.remove(old); old.userData.dispose(); PT.groups.cars.add(m);
+      c.mesh = m;
+    }
+  };
   function setPath(c, path, gate) {
-    c.path = path; c.s = 0; c.v = 0; c.gate = gate || null; c.cleared = false;
+    c.path = path; c.s = 0; c.ls = 0; c.v = 0; c.gate = gate || null; c.cleared = false;
     c.stopS = gate ? path.locate(gate.stop) : null;
     path.at(0, c.pos, c.tan);
   }
@@ -310,9 +331,11 @@
   function startCharge(c, t0) {
     c.charge = { kw: KW[(Math.random() * KW.length) | 0], cap: 60, soc0: Math.round(rand(12, 65)), t0, t1: null, lit: 'on' };
     PT.setChargerLight(c.slot, 'charging');
+    c.charge.cable = PT.addCable(c.slot, c.mesh.userData.model.L);
   }
   function stopCharge(c) {
     if (c.charge && c.charge.t1 == null) c.charge.t1 = sim.t;
+    if (c.charge && c.charge.cable) { PT.removeCable(c.charge.cable); c.charge.cable = null; }
     PT.setChargerLight(c.slot, 'free');
   }
   sim.chargeInfo = function (c) {
@@ -330,16 +353,15 @@
     c.state = 'parked'; c.v = 0; c.chain = 0; c.reverse = false;
     c.pos.set(s.x, s.y, s.z); c.dir.set(0, 0, Math.sign(s.z - s.aisleZ));
     PT.setSlotLight(s, true, c.type === 'temp');
-    if (s.charger && Math.random() < 0.6) startCharge(c, t0 == null ? sim.t : t0);
+    if (s.charger && c.ev && Math.random() < 0.85) startCharge(c, t0 == null ? sim.t : t0);
     else PT.setChargerLight(s, 'occupied');
   }
   function trySpawn() {
     for (const o of sim.cars) if (o.state === 'arriving' && o.pos.x > 96) return;
     if (sim.cars.filter((c) => c.state === 'arriving' && c.stopS != null).length >= 5) return;
-    const free = PT.SLOTS.filter((s) => !s.car);
-    if (!free.length) return;
-    const slot = free[(Math.random() * free.length) | 0];
-    const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', slot);
+    const ev = Math.random() < 0.35, slot = pickSlot(ev);
+    if (!slot) return;
+    const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', slot, ev);
     c.state = 'arriving';
     const gate = pickGate('in', c);
     setPath(c, slotPaths(slot).entry(gate), gate);
@@ -358,7 +380,7 @@
     return true;
   }
   function removeCar(c) {
-    PT.groups.cars.remove(c.mesh);
+    PT.groups.cars.remove(c.mesh); c.mesh.userData.dispose();
     sim.cars.splice(sim.cars.indexOf(c), 1);
   }
 
@@ -438,6 +460,7 @@
       if ((c.blockT += dt) > 6) { c.ghost = 2.5; c.blockT = 0; }
     } else c.blockT = 0;
 
+    c.braking = vmax < c.v - 0.3 || c.v < 0.05;
     c.v += clamp(vmax - c.v, -9 * dt, 3.2 * dt);
     if (c.v < 0) c.v = 0;
     c.s += c.v * dt;
@@ -461,7 +484,7 @@
   const decor = [];
   function initDecor() {
     for (let i = 0; i < 5; i++) {
-      const m = PT.makeCarMesh('decor');
+      const m = PT.makeCarMesh(makeLook('decor', Math.random() < 0.3));
       m.position.set(-140 + i * 58 + rand(-8, 8), 0, 56); m.rotation.y = Math.PI / 2;
       PT.groups.surface.add(m);
       decor.push({ m, v: rand(8, 11) });
@@ -474,9 +497,9 @@
     C.IN.forEach((x, i) => makeGate('I' + (i + 1), '入口 ' + (i + 1), 'in', x, i === 2));
     C.OUT.forEach((x, i) => makeGate('O' + (i + 1), '出口 ' + (i + 1), 'out', x, i === 2));
     for (const lv of [1, 2]) PT.addFlowLine(new Path(surfaceIn(C.RING).concat(loop(lv), surfaceOut, [V(-C.RING, 0, C.ROAD_Z), V(-125, 0, C.ROAD_Z)])).pts, lv);
-    const pool = PT.SLOTS.slice().sort(() => Math.random() - 0.5).slice(0, 56);
-    for (const s of pool) {
-      const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', s);
+    for (let i = 0; i < 56; i++) {
+      const ev = Math.random() < 0.35, s = pickSlot(ev);
+      const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', s, ev);
       c.enterT = -rand(20, 230); c.timer = rand(3, 150); c.entered = true;
       placeParked(c, c.enterT);
     }
@@ -505,12 +528,27 @@
     for (const c of sim.cars) {
       if (c.state !== 'parked') {
         look.copy(c.tan); if (c.reverse) look.negate();
+        c.turn = c.dir.z * look.x - c.dir.x * look.z;   // >0 表示正在向左打方向
         c.dir.lerp(look, k).normalize();
       }
       c.mesh.position.copy(c.pos);
       look.copy(c.pos).add(c.dir);
       c.mesh.lookAt(look);
       c.mesh.visible = PT.carVisible(c.pos.y);
+      const u = c.mesh.userData, moving = c.state !== 'parked';
+      if (u.wheels && c.mesh.visible) {
+        // 车轮按行驶距离滚动，前轮随转向偏转；刹车灯、倒车灯、转向灯跟随车辆状态
+        let ds = c.s - c.ls; c.ls = c.s;
+        if (!moving || ds < 0 || ds > 3) ds = 0;
+        c.spin += ((c.reverse ? -1 : 1) * ds) / u.model.r;
+        c.steer += ((moving ? Math.max(-0.5, Math.min(0.5, c.turn * 3.2)) : 0) - c.steer) * Math.min(1, rdt * 8);
+        for (let i = 0; i < 4; i++) { u.wheels[i].rotation.x = c.spin; if (i < 2) u.wheels[i].rotation.y = c.steer; }
+        u.rev.visible = c.reverse;
+        const blink = Math.sin(now * 0.013) > 0;
+        u.sigL.visible = moving && blink && c.steer > 0.1;
+        u.sigR.visible = moving && blink && c.steer < -0.1;
+      }
+      u.tailMat.color.setHex(moving && c.braking ? 0xff2030 : moving && PT.env.n > 0.5 ? 0xa51522 : 0x5e0c14);
     }
     const sc = sim.selCar, ring = PT.selRing;
     ring.visible = !!sc && !sc.dead && sc.mesh.visible;

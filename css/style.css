@@ -102,6 +102,8 @@ dd { margin: 0; font-variant-numeric: tabular-nums; }
 .tag { padding: 1px 8px; border-radius: 4px; font-size: 12px; }
 .tag.monthly { background: rgba(76, 141, 255, 0.25); color: #b9d4ff; }
 .tag.temp { background: rgba(255, 178, 62, 0.22); color: #ffd699; }
+.tag.ev { background: rgba(53, 179, 90, 0.25); color: #a9f0bf; }
+.tag.fuel { background: rgba(20, 71, 184, 0.4); color: #c4d6ff; }
 .empty, .note { color: var(--muted); margin: 12px 0; }
 .note { color: var(--amber); }
 .anomaly { border: 1px solid rgba(255, 77, 94, 0.55); background: rgba(255, 77, 94, 0.1); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }

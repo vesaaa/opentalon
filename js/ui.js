@@ -48,7 +48,11 @@
   /* ---------- 画质：记住上次选择；首次按显卡自动判断，帧率太低自动降回标准 ---------- */
   let fpsWatch = null;
   const Q_NAME = ['流畅', '标准', '高'];
-  function setQuality(level) { PT.setQuality(level); setSeg('quality', String(level)); }
+  function setQuality(level) {
+    const was = PT.getQuality();
+    PT.setQuality(level); setSeg('quality', String(level));
+    if ((was === 0) !== (level === 0)) sim.remesh();   // 流畅档用简化车模
+  }
   (function () {
     let saved = null;
     try { saved = localStorage.getItem('pt-quality'); } catch (err) { /* 忽略 */ }
@@ -141,6 +145,7 @@
     let h = `<header><div><h2>车辆信息</h2><span class="chip idle">${st}</span></div><button class="x" data-act="close" aria-label="关闭">×</button></header>
       <dl><dt>车牌</dt><dd class="plate">${esc(c.plate)}</dd>
       <dt>类型</dt><dd><span class="tag ${c.type}">${temp ? '临时车' : '月卡车'}</span></dd>
+      <dt>车型</dt><dd>${esc(PT.CAR_MODELS[c.look.model].name)} · <span class="tag ${c.ev ? 'ev' : 'fuel'}">${c.ev ? '新能源 · 绿牌' : '燃油 · 蓝牌'}</span></dd>
       <dt>车位</dt><dd>${esc(s.name)}${s.charger ? ' · 充电车位' : ''}</dd>
       <dt>停车时长</dt><dd>${c.entered ? fmtDur(sim.parkMinutes(c)) : '尚未入场'}</dd>
       <dt>${temp ? '当前计费' : '费用'}</dt><dd>${temp ? (c.paid ? `已缴 ¥${c.fee}` : c.entered ? `¥${sim.feeNow(c)}` : '—') : '月卡免费'}</dd></dl>`;
@@ -155,7 +160,7 @@
         <dt>充电时长</dt><dd>${fmtDur(ci.minutes)}</dd>
         <dt>充电费</dt><dd>¥${ci.fee}（¥1.2/kWh）</dd></dl></div>`;
     } else {
-      h += `<p class="empty">${s.charger ? '该车位有充电桩，本车未充电。' : '该车位没有充电桩。'}</p>`;
+      h += `<p class="empty">${!c.ev ? '燃油车，不需要充电。' : s.charger ? '该车位有充电桩，本车未充电。' : '该车位没有充电桩。'}</p>`;
     }
     $('panel').innerHTML = h;
   }

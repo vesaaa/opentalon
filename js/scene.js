@@ -682,44 +682,143 @@
     return lv === 'ground' || !hiddenBy(lv);
   };
 
-  /* ---------- 车辆模型 ---------- */
+  /* ---------- 车辆模型（程序生成：侧面轮廓拉伸的车身 + 车窗 + 车轮 + 灯具 + 车牌 + 车顶标记） ---------- */
+  // prof：侧面轮廓（u 沿车长，前为正；v 为高度）。g：车窗带 [后窗底u, 后窗底v, 后窗顶u, 车顶v, 前窗顶u, 前窗底u, 前窗底v]
+  const MODELS = (PT.CAR_MODELS = [
+    { name: '轿车', L: 4.6, W: 1.8, r: 0.33, hl: 0.68, tl: 0.72, roofZ: -0.35,
+      prof: [[-2.3, 0.3], [-2.3, 0.85], [-1.7, 0.95], [-1.1, 1.42], [0.35, 1.42], [1.15, 0.95], [2.2, 0.82], [2.3, 0.6], [2.3, 0.3]], g: [-1.7, 0.95, -1.1, 1.42, 0.35, 1.15, 0.95] },
+    { name: 'SUV', L: 4.7, W: 1.9, r: 0.37, hl: 0.84, tl: 0.92, roofZ: -0.85,
+      prof: [[-2.35, 0.38], [-2.35, 1.05], [-2.2, 1.7], [0.45, 1.7], [1.25, 1.1], [2.25, 1.0], [2.35, 0.72], [2.35, 0.38]], g: [-2.35, 1.05, -2.2, 1.7, 0.45, 1.25, 1.1] },
+    { name: '两厢车', L: 4.0, W: 1.75, r: 0.31, hl: 0.68, tl: 0.75, roofZ: -0.75,
+      prof: [[-2, 0.3], [-2, 0.9], [-1.75, 1.46], [0.25, 1.46], [1.0, 0.93], [1.9, 0.82], [2, 0.6], [2, 0.3]], g: [-2, 0.9, -1.75, 1.46, 0.25, 1.0, 0.93] },
+    { name: 'MPV', L: 4.9, W: 1.9, r: 0.35, hl: 0.8, tl: 0.96, roofZ: -0.6,
+      prof: [[-2.45, 0.36], [-2.45, 1.15], [-2.35, 1.82], [1.15, 1.82], [2.0, 1.12], [2.4, 0.98], [2.45, 0.62], [2.45, 0.36]], g: [-2.45, 1.15, -2.35, 1.82, 1.15, 2.0, 1.12] },
+  ]);
+  const PAINTS = [0xf1f1ee, 0xc7ccd1, 0x1c1e22, 0x6c7178, 0xb0202b, 0x1f4fa3, 0x2f5d50, 0xcbb994, 0x7c8ea3, 0x8a2f3c];
+  PT.CAR_PAINTS = PAINTS.length;
   const carGeo = {}, carMat = {};
+  function mergeGeos(list) {
+    const pos = [], nor = [], uv = [];
+    for (const g0 of list) {
+      const g = g0.index ? g0.toNonIndexed() : g0;
+      pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array); uv.push(...g.attributes.uv.array);
+    }
+    const out = new T.BufferGeometry();
+    out.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    out.setAttribute('normal', new T.Float32BufferAttribute(nor, 3));
+    out.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
+    return out;
+  }
+  const boxes = (list) => mergeGeos(list.map(([w, h, d, x, y, z]) => new T.BoxGeometry(w, h, d).translate(x, y, z)));
+  function extrude(pts, width) {
+    const g = new T.ExtrudeGeometry(new T.Shape(pts.map((p) => new T.Vector2(p[0], p[1]))), { depth: width, bevelEnabled: false });
+    g.translate(0, 0, -width / 2); g.rotateY(-Math.PI / 2);   // 车长沿 z，车头朝 +z
+    return g;
+  }
   function initCarAssets() {
-    carGeo.body = new T.BoxGeometry(1.8, 0.62, 4.4);
-    carGeo.cab = new T.BoxGeometry(1.6, 0.55, 2.3);
-    carGeo.lamp = new T.BoxGeometry(1.5, 0.14, 0.08);
-    carGeo.beam = new T.PlaneGeometry(2.8, 9); carGeo.beam.rotateX(-Math.PI / 2); carGeo.beam.translate(0, -0.42, 6.8);
-    const mk = (c) => new T.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.28, roughness: 0.4, metalness: 0.3 });
-    carMat.monthly = [0x2fb8ff, 0x4f8dff, 0x38d6e8].map(mk);
-    carMat.temp = [0xffb02e, 0xff8a3d, 0xffd24a].map(mk);
-    carMat.decor = [mk(0x6f86a6)];
-    carPaint.push(...carMat.monthly, ...carMat.temp, ...carMat.decor);
+    for (const m of MODELS) {
+      const [ub, vb, ur, vr, uf, uw, vb2] = m.g, f = m.L / 2, hx = m.W / 2 - 0.32, sx = m.W / 2 - 0.06;
+      m.roofY = vr;
+      m.body = extrude(m.prof, m.W);
+      m.glassS = extrude([[ub + 0.14, vb + 0.05], [ur + 0.1, vr - 0.07], [uf - 0.1, vr - 0.07], [uw - 0.16, vb2 + 0.05]], m.W + 0.03);   // 侧窗
+      m.glassF = extrude([[ub - 0.04, vb + 0.02], [ur - 0.04, vr - 0.02], [uf + 0.04, vr - 0.02], [uw + 0.04, vb2 + 0.02]], m.W - 0.22); // 前后挡风
+      m.wheel = new T.CylinderGeometry(m.r, m.r, 0.24, 16).rotateZ(Math.PI / 2);
+      m.head = boxes([[0.42, 0.15, 0.1, hx, m.hl, f - 0.03], [0.42, 0.15, 0.1, -hx, m.hl, f - 0.03]]);
+      m.tail = boxes([[0.4, 0.15, 0.1, hx, m.tl, -f + 0.03], [0.4, 0.15, 0.1, -hx, m.tl, -f + 0.03]]);
+      m.rev = boxes([[0.22, 0.08, 0.08, 0.5, m.tl - 0.18, -f + 0.03]]);
+      m.sigL = boxes([[0.14, 0.12, 0.12, sx, m.hl, f - 0.05], [0.14, 0.12, 0.12, sx, m.tl, -f + 0.05]]);
+      m.sigR = boxes([[0.14, 0.12, 0.12, -sx, m.hl, f - 0.05], [0.14, 0.12, 0.12, -sx, m.tl, -f + 0.05]]);
+      m.plate = mergeGeos([new T.PlaneGeometry(0.62, 0.2).translate(0, 0.46, f + 0.012), new T.PlaneGeometry(0.62, 0.2).rotateY(Math.PI).translate(0, 0.5, -f - 0.012)]);
+      // 流畅档用的简化车身
+      m.simple = boxes([[m.W, 0.62, m.L, 0, 0.6, 0], [m.W - 0.2, 0.5, m.L * 0.52, 0, 1.15, -0.25]]);
+    }
+    carGeo.beam = new T.PlaneGeometry(2.8, 9); carGeo.beam.rotateX(-Math.PI / 2); carGeo.beam.translate(0, 0.08, 4.5);
     carGeo.blob = new T.PlaneGeometry(3.4, 6.4); carGeo.blob.rotateX(-Math.PI / 2);
-    carMat.blob = new T.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false });
-    carMat.alarm = PT.alarmMat = new T.MeshStandardMaterial({ color: 0xff2d44, emissive: 0xff2d44, emissiveIntensity: 1 });
-    carMat.cab = new T.MeshStandardMaterial({ color: 0x0b1930, roughness: 0.2, metalness: 0.6 });
+    carGeo.mark = new T.PlaneGeometry(0.85, 0.85); carGeo.mark.rotateX(-Math.PI / 2); carGeo.mark.rotateY(Math.PI);   // 字头朝车头，从上往下看是正的
+    carMat.paint = PAINTS.map((c) => new T.MeshStandardMaterial({ color: c, roughness: 0.4, metalness: 0.3 }));
+    carPaint.push(...carMat.paint);
+    carMat.glass = new T.MeshStandardMaterial({ color: 0x0b141f, roughness: 0.08, metalness: 0.7 });
+    const hub = canvasTex(64, 64, (g) => {
+      g.fillStyle = '#15171a'; g.fillRect(0, 0, 64, 64);
+      g.fillStyle = '#b9c0c8'; g.beginPath(); g.arc(32, 32, 19, 0, 7); g.fill();
+      g.strokeStyle = '#3a4048'; g.lineWidth = 4;
+      for (let i = 0; i < 5; i++) { const a = (i * Math.PI * 2) / 5; g.beginPath(); g.moveTo(32, 32); g.lineTo(32 + 19 * Math.cos(a), 32 + 19 * Math.sin(a)); g.stroke(); }
+      g.fillStyle = '#2a2f36'; g.beginPath(); g.arc(32, 32, 5, 0, 7); g.fill();
+    }).tex;
+    const tire = new T.MeshStandardMaterial({ color: 0x15171a, roughness: 0.95 }), rim = new T.MeshStandardMaterial({ map: hub, roughness: 0.5 });
+    carMat.wheel = [tire, rim, rim];
     carMat.front = new T.MeshBasicMaterial({ color: 0xfff3c4 });
-    carMat.rear = new T.MeshBasicMaterial({ color: 0xff3344 });
+    carMat.white = new T.MeshBasicMaterial({ color: 0xffffff });
+    carMat.amber = new T.MeshBasicMaterial({ color: 0xffa51f });
+    carMat.alarm = PT.alarmMat = new T.MeshStandardMaterial({ color: 0xff2d44, emissive: 0xff2d44, emissiveIntensity: 1 });
+    carMat.blob = new T.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false });
+    // 车顶标记：蓝底「月」= 月卡车，橙底「临」= 临时车
+    const mark = (bg, ch) => new T.MeshBasicMaterial({ transparent: true, map: canvasTex(64, 64, (g) => {
+      g.fillStyle = bg; g.beginPath(); g.arc(32, 32, 29, 0, 7); g.fill();
+      g.strokeStyle = '#fff'; g.lineWidth = 4; g.stroke();
+      g.fillStyle = '#fff'; g.font = '700 36px ' + PT.FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ch, 32, 34);
+    }).tex });
+    carMat.mark = { monthly: mark('#1f6fff', '月'), temp: mark('#ff7a1a', '临') };
     // 选中车辆的高亮圈
     const ring = (PT.selRing = new T.Mesh(new T.RingGeometry(2.9, 3.4, 48), new T.MeshBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.95, side: T.DoubleSide, depthWrite: false })));
     ring.rotation.x = -Math.PI / 2; ring.renderOrder = 9; ring.visible = false; scene.add(ring);
     beamMat = new T.MeshBasicMaterial({ map: beamTex, color: 0xfff0c0, transparent: true, opacity: 0, blending: T.AdditiveBlending, depthWrite: false });
   }
-  PT.makeCarMesh = function (type) {
-    const g = new T.Group(), set = carMat[type];
-    const body = new T.Mesh(carGeo.body, set[(Math.random() * set.length) | 0]); body.position.y = 0.52;
-    const cab = new T.Mesh(carGeo.cab, carMat.cab); cab.position.set(0, 1.06, -0.25);
-    const f = new T.Mesh(carGeo.lamp, carMat.front); f.position.set(0, 0.56, 2.21);
-    const r = new T.Mesh(carGeo.lamp, carMat.rear); r.position.set(0, 0.56, -2.21);
-    const beam = new T.Mesh(carGeo.beam, beamMat); beam.position.y = 0.5; beam.renderOrder = 8;
+  // 车牌贴图：绿牌（渐变绿底黑字）= 新能源，蓝牌（蓝底白字）= 燃油车
+  function plateTex(look) {
+    return canvasTex(128, 40, (g) => {
+      if (look.ev) { const gr = g.createLinearGradient(0, 0, 128, 0); gr.addColorStop(0, '#f2faf2'); gr.addColorStop(1, '#35b35a'); g.fillStyle = gr; }
+      else g.fillStyle = '#1447b8';
+      g.fillRect(0, 0, 128, 40);
+      g.strokeStyle = look.ev ? '#10331c' : '#fff'; g.lineWidth = 2; g.strokeRect(2, 2, 124, 36);
+      g.fillStyle = look.ev ? '#0c1410' : '#fff'; g.font = `700 ${look.ev ? 21 : 23}px ` + PT.FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(look.plate, 64, 21);
+    }).tex;
+  }
+  // look：{ type: 'monthly' | 'temp' | 'decor', model, color, ev, plate }
+  PT.makeCarMesh = function (look) {
+    const g = new T.Group(), m = MODELS[look.model], paint = carMat.paint[look.color], u = g.userData;
+    const add = (geo, mat) => { const x = new T.Mesh(geo, mat); g.add(x); return x; };
+    const simple = qLevel === 0;
+    const body = add(simple ? m.simple : m.body, paint);
+    body.castShadow = true; body.receiveShadow = true;
+    u.body = body; u.baseMat = paint; u.model = m;
+    u.tailMat = new T.MeshBasicMaterial({ color: 0x5e0c14 });
+    add(m.head, carMat.front); add(m.tail, u.tailMat);
+    if (!simple) {
+      add(m.glassS, carMat.glass); add(m.glassF, carMat.glass);
+      u.wheels = [];
+      for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {   // 前两个是前轮，可转向
+        const w = add(m.wheel, carMat.wheel);
+        w.position.set(sx * (m.W / 2 - 0.1), m.r, sz * (m.L / 2 - 0.82)); w.rotation.order = 'YXZ';
+        u.wheels.push(w);
+      }
+      u.rev = add(m.rev, carMat.white); u.sigL = add(m.sigL, carMat.amber); u.sigR = add(m.sigR, carMat.amber);
+      u.rev.visible = u.sigL.visible = u.sigR.visible = false;
+      const tex = plateTex(look);
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      u.plateMat = new T.MeshBasicMaterial({ map: tex });
+      add(m.plate, u.plateMat);
+    }
+    if (carMat.mark[look.type]) { const mk = add(carGeo.mark, carMat.mark[look.type]); mk.position.set(0, (simple ? 1.4 : m.roofY) + 0.03, m.roofZ); mk.renderOrder = 7; }
+    const beam = add(carGeo.beam, beamMat); beam.position.z = m.L / 2; beam.renderOrder = 8;
     // 车底柔和暗斑：没有实时阴影时也有贴地感
-    const blob = new T.Mesh(carGeo.blob, carMat.blob); blob.position.y = 0.05; blob.renderOrder = 8;
-    body.castShadow = cab.castShadow = true; body.receiveShadow = true;
+    const blob = add(carGeo.blob, carMat.blob); blob.position.y = 0.05; blob.scale.set(m.W / 1.8, 1, m.L / 4.4); blob.renderOrder = 8;
     beam.userData.noPick = blob.userData.noPick = true;
-    g.add(body, cab, f, r, beam, blob);
-    g.userData.body = body; g.userData.baseMat = body.material;
+    u.dispose = () => { u.tailMat.dispose(); if (u.plateMat) { u.plateMat.map.dispose(); u.plateMat.dispose(); } };
     return g;
   };
+  // 充电线：从充电桩到车头侧面的一条下垂曲线
+  const cableMat = new T.LineBasicMaterial({ color: 0x9ff3ff });
+  PT.addCable = function (slot, carLen) {
+    const d = Math.sign(slot.z - slot.aisleZ);
+    const a = new T.Vector3(slot.x, slot.y + 1.05, slot.z + d * 2.75), b = new T.Vector3(slot.x + 0.75, slot.y + 0.8, slot.z + d * (carLen / 2 - 0.9));
+    const mid = a.clone().add(b).multiplyScalar(0.5); mid.y = slot.y + 0.15; mid.x += 0.5;
+    const line = new T.Line(new T.BufferGeometry().setFromPoints(new T.QuadraticBezierCurve3(a, mid, b).getPoints(12)), cableMat);
+    (slot.level === 1 ? gB1 : gB2).add(line);
+    return line;
+  };
+  PT.removeCable = function (line) { if (line.parent) line.parent.remove(line); line.geometry.dispose(); };
 
   /* ---------- 闸机模型 ---------- */
   PT.buildGate = function (gate) {
