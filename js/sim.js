@@ -106,7 +106,8 @@
   }
   // 选车道：挑当前车最少的闸口；有预置异常的出口优先让临时车去
   function pickGate(kind, car) {
-    const list = Object.values(sim.gates).filter((g) => g.kind === kind);
+    let list = Object.values(sim.gates).filter((g) => g.kind === kind);
+    if (list.some((g) => !g.fault)) list = list.filter((g) => !g.fault);
     if (kind === 'out' && car.type === 'temp') { const p = list.find((g) => g.pending && !g.anomaly); if (p) return p; }
     let best = null, bn = 1e9;
     for (const g of list) {
@@ -159,7 +160,7 @@
 
   function gateArrive(c) {
     const g = c.gate;
-    if (g.current || g.phase !== 'idle') return;
+    if (g.fault || g.current || g.phase !== 'idle') return;   // 设备故障的道闸不放行
     g.current = c; g.phase = 'reading'; g.timer = 0.7;
     board(g, c.plate, '车牌识别中', 'busy');
   }
@@ -225,7 +226,7 @@
     const g = c.gate;
     if (g.kind === 'out') { sim.count.out++; g.stat.count++; }
     g.wantOpen = false; g.current = null; g.phase = 'idle';
-    board(g, '— —', '空闲', 'idle');
+    board(g, '— —', g.fault ? '设备故障' : '空闲', g.fault ? 'alarm' : 'idle');
     c.stopS = null; c.gate = null;
   }
 
@@ -305,7 +306,7 @@
   }
   // 新能源车优先挑有充电桩的车位
   function pickSlot(ev) {
-    const free = PT.SLOTS.filter((s) => !s.car);
+    const free = PT.SLOTS.filter((s) => !s.car && !sim.closed[s.level]);
     if (!free.length) return null;
     const pref = free.filter((s) => s.charger === ev);
     const pool = pref.length && Math.random() < 0.8 ? pref : free;
@@ -328,18 +329,24 @@
   }
   /* ---------- 充电 ---------- */
   const blinkSlots = new Set();
+  const lamp = (slot, state) => { if (!slot.fault) PT.setChargerLight(slot, state); };   // 故障中的桩由事件模块控制灯色
   let blinkOn = true;
   const KW = [7, 7, 11, 40];
-  function startCharge(c, t0) {
-    c.charge = { kw: KW[(Math.random() * KW.length) | 0], cap: 60, soc0: Math.round(rand(12, 65)), t0, t1: null, lit: 'on' };
-    PT.setChargerLight(c.slot, 'charging');
+  function startCharge(c, t0, soc0) {
+    c.charge = { kw: KW[(Math.random() * KW.length) | 0], cap: 60, soc0: soc0 != null ? soc0 : Math.round(rand(12, 65)), t0, t1: null, lit: 'on' };
+    lamp(c.slot, 'charging');
     c.charge.cable = PT.addCable(c.slot, c.mesh.userData.model.L);
+  }
+  // 只结束充电（拔线、记结束时间），不动灯色
+  function endCharge(c) {
+    if (c.charge && c.charge.t1 == null) c.charge.t1 = sim.t;
+    if (c.charge && c.charge.cable) { PT.removeCable(c.charge.cable); c.charge.cable = null; }
   }
   function stopCharge(c) {
     if (c.charge && c.charge.t1 == null) c.charge.t1 = sim.t;
     if (c.charge && c.charge.cable) { PT.removeCable(c.charge.cable); c.charge.cable = null; }
     blinkSlots.delete(c.slot);
-    PT.setChargerLight(c.slot, 'free');
+    lamp(c.slot, 'free');
   }
   sim.chargeInfo = function (c) {
     const g = c.charge;
@@ -356,9 +363,9 @@
     c.state = 'parked'; c.v = 0; c.chain = 0; c.reverse = false;
     c.pos.set(s.x, s.y, s.z); c.dir.set(0, 0, Math.sign(s.z - s.aisleZ));
     PT.setSlotLight(s, true, c.type === 'temp');
-    if (s.charger && c.ev && Math.random() < 0.85) startCharge(c, t0 == null ? sim.t : t0);
+    if (s.charger && c.ev && !s.fault && Math.random() < 0.85) startCharge(c, t0 == null ? sim.t : t0);
     else {
-      PT.setChargerLight(s, 'occupied');
+      lamp(s, 'occupied');
       if (s.charger && !c.ev) blinkSlots.add(s);   // 燃油车占用充电车位：黄灯闪烁警示
     }
   }
@@ -449,6 +456,16 @@
         if (o !== c && o.state === 'arriving' && Math.abs(o.pos.z - 38) < 2 && o.pos.x > c.pos.x - 9 && o.pos.x < c.pos.x + 2.5) { vmax = 0; break; }
       }
     }
+    // 场内事件：火情附近减速通行；倒地行人前方停车等待
+    let hazardHold = false;
+    for (const h of sim.hazards) {
+      dv.subVectors(h.pos, c.pos);
+      if (Math.abs(dv.y) > 2) continue;
+      const d2 = dv.x * dv.x + dv.z * dv.z;
+      if (h.kind === 'slow') { if (d2 < h.r * h.r) vmax = Math.min(vmax, 1.6); continue; }
+      const f = dv.x * c.tan.x + dv.z * c.tan.z;
+      if (f > 0 && f < 10 && d2 - f * f < 7) { if (f < 6.2) { vmax = 0; hazardHold = true; } else vmax = Math.min(vmax, (f - 6.2) * 1.5); }
+    }
     const stubHold = c.stub && mergeBlocked(c);
     if (stubHold) vmax = 0;
     // 出闸后汇入市政道路：让行正在驶来的车辆
@@ -461,7 +478,7 @@
       }
     }
     if (lead) { const gap = lead.reverse ? GAP + 3.5 : GAP; vmax = Math.min(vmax, lf < gap ? 0 : (lf - gap) * 1.7); }
-    c.chain = holding || stubHold ? 1 : lead && lf < GAP + 1.5 && lead.chain > 0 && lead.chain < 80 ? lead.chain + 1 : 0;
+    c.chain = holding || stubHold || hazardHold ? 1 : lead && lf < GAP + 1.5 && lead.chain > 0 && lead.chain < 80 ? lead.chain + 1 : 0;
     if (lead && vmax < 0.2 && !c.chain) {
       if ((c.blockT += dt) > 6) { c.ghost = 2.5; c.blockT = 0; }
     } else c.blockT = 0;
@@ -523,9 +540,10 @@
     if ((chargeT -= dt) <= 0) {
       chargeT = 1;
       for (const c of sim.cars) {
-        if (c.state === 'parked' && c.charge && c.charge.lit === 'on' && sim.chargeInfo(c).full) { c.charge.lit = 'full'; PT.setChargerLight(c.slot, 'occupied'); }
+        if (c.state === 'parked' && c.charge && c.charge.lit === 'on' && sim.chargeInfo(c).full) { c.charge.lit = 'full'; lamp(c.slot, 'occupied'); }
       }
     }
+    if (sim.incStep) sim.incStep(dt);
     for (const d of decor) { d.m.position.x += d.v * dt; if (d.m.position.x > 150) d.m.position.x = -150; }
   };
   const look = V(0, 0, 0);
@@ -557,7 +575,8 @@
       u.tailMat.color.setHex(moving && c.braking ? 0xff2030 : moving && PT.env.n > 0.5 ? 0xa51522 : 0x5e0c14);
     }
     const on = Math.sin(now * 0.007) > 0;
-    if (on !== blinkOn) { blinkOn = on; for (const s of blinkSlots) PT.setChargerLight(s, on ? 'occupied' : 'dim'); }
+    if (on !== blinkOn) { blinkOn = on; for (const s of blinkSlots) lamp(s, on ? 'occupied' : 'dim'); }
+    if (sim.incSync) sim.incSync(now);
     const sc = sim.selCar, ring = PT.selRing;
     ring.visible = !!sc && !sc.dead && sc.mesh.visible;
     if (ring.visible) { ring.position.set(sc.pos.x, sc.pos.y + 0.16, sc.pos.z); ring.scale.setScalar(1 + 0.06 * Math.sin(now * 0.006)); }
@@ -565,8 +584,8 @@
       const g = sim.gates[id], v = g.vis;
       v.pivot.rotation.z = v.dirX * g.openAmt * 1.45;
       const blink = Math.sin(now * 0.012) > 0;
-      v.lamp.material.color.setHex(g.anomaly ? (blink ? 0xff2d44 : 0x44080e) : g.openAmt > 0.5 ? 0x3ddc97 : 0xff4d5e);
-      if (g.anomaly) {
+      v.lamp.material.color.setHex(g.anomaly || g.fault ? (blink ? 0xff2d44 : 0x44080e) : g.openAmt > 0.5 ? 0x3ddc97 : 0xff4d5e);
+      if (g.anomaly || g.fault) {
         const ph = (now * 0.0012) % 1;
         v.ring.scale.setScalar(0.7 + ph * 0.9); v.ring.material.opacity = 0.95 * (1 - ph);
         v.beam.material.opacity = 0.1 + 0.08 * Math.sin(now * 0.008);
@@ -574,6 +593,8 @@
     }
   };
   sim.feeNow = calcFee;
+  sim.hazards = []; sim.closed = {};
+  sim._ = { rand, log, board, startCharge, endCharge, blinkSlots };   // 供场内事件模块使用
   sim.selCar = null;
   sim.freeSlots = (level) => PT.SLOTS.filter((s) => s.level === level && !s.car).length;
 })();

@@ -46,20 +46,22 @@
           <div class="seg" data-key="speed"><button data-val="0">暂停</button><button data-val="1" class="on">1×</button><button data-val="2">2×</button><button data-val="4">4×</button></div></div>
       </section>
       <section>
-        <h2>异常场景</h2>
+        <h2>出口异常</h2>
         <div class="row"><label for="trigGate">出口</label>
           <select id="trigGate"><option value="any">随机出口</option><option value="O1">出口 1</option><option value="O2">出口 2</option><option value="O3">出口 3</option></select></div>
         <button id="trigDispute" class="btn warn wide">触发：费用争议</button>
         <button id="trigStuck" class="btn warn wide">触发：已缴费未抬杆</button>
         <button id="trigArrears" class="btn warn wide">触发：欠费追缴</button>
-        <div class="row"><label class="check" for="autoOn" style="flex:1"><input id="autoOn" type="checkbox">Auto 按概率自动触发</label></div>
+        <h2 style="margin-top:12px">场内事件</h2>
+        <div class="grid2"><button id="incFire" class="btn warn">火情</button><button id="incDevice" class="btn warn">设备故障</button><button id="incPerson" class="btn warn">行人摔倒</button><button id="incCharger" class="btn warn">充电桩故障</button></div>
+        <div class="row"><label class="check" for="autoOn" style="flex:1"><input id="autoOn" type="checkbox">Auto 自动触发（出口异常按概率，场内事件随机）</label></div>
         <div class="row"><label for="autoProb">概率</label><input id="autoProb" type="range" min="1" max="50" value="15"><output id="autoProbOut" for="autoProb">15%</output></div>
       </section>
       <section>
         <h2>图例</h2>
         <div class="legend"><span>车顶标记：</span><span><i style="background:#1f6fff;border-radius:50%"></i>月 = 月卡车</span><span><i style="background:#ff7a1a;border-radius:50%"></i>临 = 临时车</span></div>
         <div class="legend" style="margin-top:6px"><span>车牌：</span><span><i style="background:#1447b8"></i>蓝牌燃油</span><span><i style="background:#35b35a"></i>绿牌新能源</span><span><i style="background:#ff2d44"></i>异常车辆</span></div>
-        <div class="legend" style="margin-top:6px"><span>充电桩灯：</span><span><i style="background:#2ee66b;border-radius:50%"></i>空闲</span><span><i style="background:#ff2d3d;border-radius:50%"></i>充电中</span><span><i style="background:#ffc21a;border-radius:50%"></i>有车未充电</span><span><i style="background:#ffc21a;border-radius:50%;outline:2px dashed #ffc21a;outline-offset:1px"></i>闪烁 = 燃油车占位</span></div>
+        <div class="legend" style="margin-top:6px"><span>充电桩灯：</span><span><i style="background:#2ee66b;border-radius:50%"></i>空闲</span><span><i style="background:#ff2d3d;border-radius:50%"></i>充电中</span><span><i style="background:#ffc21a;border-radius:50%"></i>有车未充电</span><span><i style="background:#ffc21a;border-radius:50%;outline:2px dashed #ffc21a;outline-offset:1px"></i>闪烁 = 燃油车占位</span><span><i style="background:#e23cff;border-radius:50%"></i>紫闪 = 故障</span></div>
       </section>
     </aside>
 
@@ -79,6 +81,7 @@
 <script src="js/scene.js"></script>
 <script src="js/arrears.js"></script>
 <script src="js/sim.js"></script>
+<script src="js/incidents.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

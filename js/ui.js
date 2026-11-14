@@ -7,7 +7,7 @@
   const fmtDur = (min) => (min >= 60 ? `${Math.floor(min / 60)} 小时 ${min % 60} 分` : `${min} 分钟`);
   const fmtClock = (ms) => { const s = Math.floor(ms / 1000); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 
-  let speed = 1, paused = false, selected = null, selCar = null, modal = null, panelSig = '', alertSig = '';
+  let speed = 1, paused = false, selected = null, selCar = null, selInc = null, modal = null, panelSig = '', alertSig = '';
 
   PT.initScene($('view'));
   sim.init();
@@ -88,6 +88,9 @@
     $('ctrlToggle').setAttribute('aria-expanded', open);
   });
   $('trigDispute').addEventListener('click', () => toast(sim.trigger('dispute', $('trigGate').value)));
+  for (const [id, type] of [['incFire', 'fire'], ['incDevice', 'device'], ['incPerson', 'person'], ['incCharger', 'charger']]) {
+    $(id).addEventListener('click', () => toast(sim.triggerIncident(type)));
+  }
   $('trigArrears').addEventListener('click', () => toast(sim.trigger('arrears', $('trigGate').value)));
   $('trigStuck').addEventListener('click', () => toast(sim.trigger('stuck', $('trigGate').value)));
   $('autoOn').addEventListener('change', (e) => { sim.auto = e.target.checked; });
@@ -95,32 +98,60 @@
 
   /* ---------- 告警 ---------- */
   sim.onAlert = () => renderAlerts(true);
+  function alertItems() {
+    const inc = sim.incidents.map((i) => ({ sig: 'i' + i.id + i.state, kind: 'inc', id: i.id, since: i.since,
+      title: `${i.name} · ${i.where}`, sub: i.state === 'handling' ? `${i.action.label}，处置中` : '待处置', q: null }));
+    const gate = sim.activeAnomalies().map((g) => ({ sig: 'g' + g.id + g.anomaly.type + g.anomaly.car.id, kind: 'gate', id: g.id, since: g.anomaly.since,
+      title: `${g.name} · ${sim.ANOMALY[g.anomaly.type].name}`, sub: `${g.anomaly.car.plate} · 已阻塞`, q: g }));
+    return inc.concat(gate);
+  }
   function renderAlerts(force) {
-    const list = sim.activeAnomalies();
-    const sig = list.map((g) => g.id + g.anomaly.type + g.anomaly.car.id).join(',');
-    const box = $('alerts');
+    const list = alertItems(), sig = list.map((a) => a.sig).join(','), box = $('alerts');
     if (force || sig !== alertSig) {
       alertSig = sig;
-      box.innerHTML = list.map((g) => `<button class="alert" data-gate="${g.id}">
+      box.innerHTML = list.map((a) => `<button class="alert" data-kind="${a.kind}" data-id="${a.id}">
         <span class="alert-ico" aria-hidden="true">!</span>
-        <span class="alert-txt"><b>${esc(g.name)} · ${esc(sim.ANOMALY[g.anomaly.type].name)}</b>
-        <small>${esc(g.anomaly.car.plate)} · 已阻塞 <i data-t></i> · 排队 <i data-q></i> 辆</small></span>
+        <span class="alert-txt"><b>${esc(a.title)}</b>
+        <small>${esc(a.sub)} <i data-t></i><i data-q></i></small></span>
         <span class="alert-go">定位处理</span></button>`).join('');
     }
-    list.forEach((g, i) => {
+    list.forEach((a, i) => {
       const el = box.children[i];
       if (!el) return;
-      el.querySelector('[data-t]').textContent = fmtClock(performance.now() - g.anomaly.since);
-      el.querySelector('[data-q]').textContent = sim.queueLen(g);
+      el.querySelector('[data-t]').textContent = fmtClock(performance.now() - a.since);
+      el.querySelector('[data-q]').textContent = a.q ? ` · 排队 ${sim.queueLen(a.q)} 辆` : '';
     });
   }
   $('alerts').addEventListener('click', (e) => {
     const b = e.target.closest('.alert');
     if (!b) return;
-    focusGate(b.dataset.gate);
-    const g = sim.gates[b.dataset.gate];
+    if (b.dataset.kind === 'inc') { focusIncident(sim.incidents.find((i) => i.id === +b.dataset.id)); return; }
+    focusGate(b.dataset.id);
+    const g = sim.gates[b.dataset.id];
     if (g.anomaly && g.anomaly.type === 'arrears') openModal(g.id, 'sum');
   });
+
+  /* ---------- 场内事件：定位与处置面板 ---------- */
+  function focusIncident(inc) {
+    if (!inc) return;
+    const m = PT.getFloorMode();
+    if (inc.level === 0) { if (m !== 'all' && m !== 'ground') setFloor('all', false); }
+    else setFloor(inc.level === 1 ? 'b1' : 'b2', false);   // 地库里的事件切到对应楼层视图
+    PT.focus({ target: inc.pos.clone(), r: inc.level === 0 ? 46 : 38, phi: 0.8, theta: -0.5 }, 1.2);
+    selInc = inc; selected = null; selCar = sim.selCar = null; $('panel').hidden = false; renderPanel();
+  }
+  function renderIncidentPanel() {
+    const i = selInc;
+    if (!sim.incidents.includes(i)) { closePanel(); return; }
+    const busy = i.state === 'handling';
+    let h = `<header><div><h2>${esc(i.name)}</h2><span class="chip ${busy ? 'busy' : 'alarm'}">${busy ? '处置中' : '待处置'}</span></div>
+      <button class="x" data-act="close" aria-label="关闭">×</button></header>
+      <dl><dt>位置</dt><dd>${esc(i.where)}</dd><dt>已持续</dt><dd>${fmtClock(performance.now() - i.since)}</dd></dl>
+      <div class="anomaly"><p>${esc(i.desc)}</p>`;
+    if (busy) h += `<p class="note">${esc(i.action.label)}……</p><div class="prog"><i style="width:${Math.round(100 * (1 - i.timer / i.total))}%"></i></div>`;
+    else h += i.actions.map((a) => `<button class="btn ${a.primary ? 'primary' : ''}" data-act="inc" data-a="${a.id}">${esc(a.label)}</button>`).join('');
+    $('panel').innerHTML = h + '</div>';
+  }
 
   /* ---------- 闸机详情 ---------- */
   PT.onPick = (id, car) => {
@@ -129,9 +160,9 @@
     else if (id) openPanel(id);
     else if (car) openPanel(car.gate.id);
   };
-  function openPanel(id) { selected = id; selCar = sim.selCar = null; panelSig = ''; $('panel').hidden = false; renderPanel(); }
-  function openCar(c) { selCar = sim.selCar = c; selected = null; $('panel').hidden = false; renderPanel(); }
-  function closePanel() { selected = null; selCar = sim.selCar = null; $('panel').hidden = true; }
+  function openPanel(id) { selected = id; selInc = null; selCar = sim.selCar = null; panelSig = ''; $('panel').hidden = false; renderPanel(); }
+  function openCar(c) { selCar = sim.selCar = c; selected = null; selInc = null; $('panel').hidden = false; renderPanel(); }
+  function closePanel() { selected = null; selInc = null; selCar = sim.selCar = null; $('panel').hidden = true; }
 
   /* ---------- 车辆信息（点击车辆） ---------- */
   const CAR_STATE = { arriving: '入场中', parked: '已停放', backing: '倒车出库', leaving: '离场中' };
@@ -216,6 +247,7 @@
   const PHASE = { idle: ['空闲', 'idle'], reading: ['识别车牌', 'busy'], paying: ['等待支付', 'busy'], repaying: ['重新缴费', 'busy'], blocked: ['异常阻塞', 'alarm'], open: ['放行中', 'ok'] };
 
   function renderPanel() {
+    if (selInc) { renderIncidentPanel(); return; }
     if (selCar) { renderCarPanel(); return; }
     if (!selected) return;
     const g = sim.gates[selected], c = g.current, a = g.anomaly, q = sim.queueLen(g);
@@ -265,6 +297,7 @@
     const b = e.target.closest('[data-act]');
     if (!b) return;
     if (b.dataset.act === 'close') { closePanel(); return; }
+    if (b.dataset.act === 'inc' && selInc) { sim.handleIncident(selInc.id, b.dataset.a); renderPanel(); return; }
     if (!selected) return;
     if (b.dataset.act === 'owe') { openModal(selected, 'sum'); return; }
     if (b.dataset.act === 'recover') sim.recover(selected);
@@ -284,7 +317,7 @@
     $('sB1').textContent = sim.freeSlots(1);
     $('sB2').textContent = sim.freeSlots(2);
     $('sIncome').textContent = '¥' + sim.income;
-    const n = sim.activeAnomalies().length;
+    const n = sim.activeAnomalies().length + sim.incidents.length;
     $('sAlarm').textContent = n;
     $('sAlarm').parentElement.classList.toggle('hot', n > 0);
   }
