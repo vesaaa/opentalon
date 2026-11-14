@@ -31,6 +31,7 @@
   let hemi, sun, groundMat, winMat, glowMat, poolMat, starMat, beamMat, rain, snow;
   const hitBoxes = [];
   let floorMode = 'all';
+  const floorMats = {}, see = { ground: true, b1: true, b2: true };
 
   const orbit = (PT.orbit = { target: new T.Vector3(0, -3, 10), r: 185, theta: 0.62, phi: 0.98, tween: null });
   PT.HOME = { target: new T.Vector3(0, -3, 10), r: 185, theta: 0.62, phi: 0.98 };
@@ -222,6 +223,7 @@
     const fm = new T.MeshStandardMaterial({ color: 0x0f2743, transparent: true, opacity: 0.62, depthWrite: false, roughness: 0.85 });
     const f = new T.Mesh(new T.PlaneGeometry(96, 66), fm);
     f.rotation.x = -Math.PI / 2; f.position.set(0, y, 1); f.renderOrder = level === 1 ? 2 : 1;
+    floorMats[level === 1 ? 'b1' : 'b2'] = fm;
     grp.add(f);
     const shell = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(96, 4.6, 66)),
       new T.LineBasicMaterial({ color: 0x4cc9ff, transparent: true, opacity: 0.6 }));
@@ -372,8 +374,15 @@
     gSurface.visible = m === 'all' || m === 'ground';
     gB1.visible = m === 'all' || m === 'b1';
     gB2.visible = m === 'all' || m === 'b2';
-    groundMat.opacity = m === 'ground' ? 0.96 : 0.5;
   };
+  // 逐层透视开关：关闭后该层楼板变为不透明，遮住下方楼层
+  PT.setSee = function (layer, on) {
+    see[layer] = on;
+    groundMat.opacity = see.ground ? 0.5 : 0.97;
+    floorMats.b1.opacity = see.b1 ? 0.62 : 0.97;
+    floorMats.b2.opacity = see.b2 ? 0.62 : 0.97;
+  };
+  PT.getSee = () => see;
   PT.getFloorMode = () => floorMode;
   PT.carVisible = function (y) {
     if (floorMode === 'all') return true;

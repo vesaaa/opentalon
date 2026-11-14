@@ -50,6 +50,16 @@
     const b = e.target.closest('button');
     if (!b) return;
     const key = seg.dataset.key, val = b.dataset.val;
+    if (key === 'see') {
+      if (val === 'all') ['ground', 'b1', 'b2'].forEach((l) => PT.setSee(l, true));
+      else PT.setSee(val, !PT.getSee()[val]);
+      const st = PT.getSee();
+      seg.querySelectorAll('button').forEach((x) => {
+        const on = x.dataset.val === 'all' ? st.ground && st.b1 && st.b2 : st[x.dataset.val];
+        x.classList.toggle('on', on); x.setAttribute('aria-pressed', on);
+      });
+      return;
+    }
     setSeg(key, val);
     if (key === 'time') PT.env.night = val === 'night';
     else if (key === 'weather') PT.env.weather = val;
