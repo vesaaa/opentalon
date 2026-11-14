@@ -177,6 +177,7 @@ dd { margin: 0; font-variant-numeric: tabular-nums; }
 .owe-table .num { text-align: right; color: #ff9aa4; font-weight: 600; }
 .anomaly .btn { width: 100%; }
 .fix-row .btn { width: auto; }
+.pp { display: contents; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .prog { height: 8px; border-radius: 4px; background: rgba(4, 12, 24, 0.9); border: 1px solid var(--line); overflow: hidden; }
 .prog i { display: block; height: 100%; background: var(--accent); transition: width 0.25s linear; }

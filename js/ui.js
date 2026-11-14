@@ -131,6 +131,18 @@
     if (g.anomaly && g.anomaly.type === 'arrears') openModal(g.id, 'sum');
   });
 
+  /* ---------- 面板分块更新 ----------
+     面板每 0.25 秒刷新一次。整块重建会在鼠标按下和松开之间把按钮换掉，导致点击丢失，
+     所以把面板拆成几块，只有内容真的变了的那一块才重写；按钮所在的块在状态不变时保持不动。 */
+  function setParts(parts) {
+    const el = $('panel'), kids = el.children;
+    if (kids.length !== parts.length || parts.some(([k], i) => kids[i].dataset.k !== k)) {
+      el.innerHTML = parts.map(([k]) => `<div class="pp" data-k="${k}"></div>`).join('');
+      el._h = [];
+    }
+    parts.forEach(([, html], i) => { if (el._h[i] !== html) { el._h[i] = html; kids[i].innerHTML = html; } });
+  }
+
   /* ---------- 场内事件：定位与处置面板 ---------- */
   function focusIncident(inc) {
     if (!inc) return;
@@ -144,13 +156,14 @@
     const i = selInc;
     if (!sim.incidents.includes(i)) { closePanel(); return; }
     const busy = i.state === 'handling';
-    let h = `<header><div><h2>${esc(i.name)}</h2><span class="chip ${busy ? 'busy' : 'alarm'}">${busy ? '处置中' : '待处置'}</span></div>
-      <button class="x" data-act="close" aria-label="关闭">×</button></header>
-      <dl><dt>位置</dt><dd>${esc(i.where)}</dd><dt>已持续</dt><dd>${fmtClock(performance.now() - i.since)}</dd></dl>
-      <div class="anomaly"><p>${esc(i.desc)}</p>`;
-    if (busy) h += `<p class="note">${esc(i.action.label)}……</p><div class="prog"><i style="width:${Math.round(100 * (1 - i.timer / i.total))}%"></i></div>`;
-    else h += i.actions.map((a) => `<button class="btn ${a.primary ? 'primary' : ''}" data-act="inc" data-a="${a.id}">${esc(a.label)}</button>`).join('');
-    $('panel').innerHTML = h + '</div>';
+    setParts([
+      ['ih', `<header><div><h2>${esc(i.name)}</h2><span class="chip ${busy ? 'busy' : 'alarm'}">${busy ? '处置中' : '待处置'}</span></div>
+        <button class="x" data-act="close" aria-label="关闭">×</button></header>`],
+      ['ii', `<dl><dt>位置</dt><dd>${esc(i.where)}</dd><dt>已持续</dt><dd>${fmtClock(performance.now() - i.since)}</dd></dl>`],
+      ['ia', `<div class="anomaly"><p>${esc(i.desc)}</p>${busy
+        ? `<p class="note">${esc(i.action.label)}……</p><div class="prog"><i style="width:${Math.round(100 * (1 - i.timer / i.total))}%"></i></div>`
+        : i.actions.map((a) => `<button class="btn ${a.primary ? 'primary' : ''}" data-act="inc" data-a="${a.id}">${esc(a.label)}</button>`).join('')}</div>`],
+    ]);
   }
 
   /* ---------- 闸机详情 ---------- */
@@ -173,8 +186,8 @@
     let st = CAR_STATE[c.state];
     if (c.state === 'arriving' && c.entered) st = '前往车位';
     if (c.state === 'leaving' && c.gate) st = c.chain > 0 ? '出口排队' : '前往出口';
-    let h = `<header><div><h2>车辆信息</h2><span class="chip idle">${st}</span></div><button class="x" data-act="close" aria-label="关闭">×</button></header>
-      <dl><dt>车牌</dt><dd class="plate">${esc(c.plate)}</dd>
+    const head = `<header><div><h2>车辆信息</h2><span class="chip idle">${st}</span></div><button class="x" data-act="close" aria-label="关闭">×</button></header>`;
+    let h = `<dl><dt>车牌</dt><dd class="plate">${esc(c.plate)}</dd>
       <dt>类型</dt><dd><span class="tag ${c.type}">${temp ? '临时车' : '月卡车'}</span></dd>
       <dt>车型</dt><dd>${esc(PT.CAR_MODELS[c.look.model].name)} · <span class="tag ${c.ev ? 'ev' : 'fuel'}">${c.ev ? '新能源 · 绿牌' : '燃油 · 蓝牌'}</span></dd>
       <dt>车位</dt><dd>${esc(s.name)}${s.charger ? ' · 充电车位' : ''}</dd>
@@ -193,7 +206,7 @@
     } else {
       h += `<p class="empty">${!c.ev ? (s.charger ? '燃油车占用了充电车位，充电桩黄灯闪烁警示。' : '燃油车，不需要充电。') : s.charger ? '该车位有充电桩，本车未充电。' : '该车位没有充电桩。'}</p>`;
     }
-    $('panel').innerHTML = h;
+    setParts([['ch', head], ['cb', h]]);
   }
 
   /* ---------- 欠费追缴弹窗：汇总 → 详情地图（本市 / 本省） ---------- */
@@ -251,47 +264,40 @@
     if (selCar) { renderCarPanel(); return; }
     if (!selected) return;
     const g = sim.gates[selected], c = g.current, a = g.anomaly, q = sim.queueLen(g);
-    const sig = [g.id, g.phase, c && c.id, a && a.type, q, g.stat.count, g.stat.income, c && c.fee, c && c.paid, g.pending].join('|');
-    const el = $('panel');
-    if (sig !== panelSig) {
-      panelSig = sig;
-      const old = el.querySelector('#fixAmount'), keep = old ? { v: old.value, f: document.activeElement === old } : null;
-      const [pName, pTone] = PHASE[g.phase];
-      let h = `<header><div><h2>${esc(g.name)}</h2><span class="chip ${pTone}">${pName}</span></div>
-        <button class="x" data-act="close" aria-label="关闭">×</button></header>`;
-      if (c) {
-        const temp = c.type === 'temp';
-        h += `<dl><dt>车牌</dt><dd class="plate">${esc(c.plate)}</dd>
-          <dt>类型</dt><dd><span class="tag ${c.type}">${temp ? '临时车' : '月卡车'}</span></dd>`;
-        if (g.kind === 'out') {
-          h += `<dt>停车时长</dt><dd id="pDur"></dd>`;
-          if (temp) h += `<dt>应付金额</dt><dd class="fee">¥${c.fee}</dd><dt>支付状态</dt><dd>${c.paid ? '已支付' : g.phase === 'reading' ? '计费中' : '未支付'}</dd>`;
-          else h += `<dt>应付金额</dt><dd>月卡免费</dd>`;
-        }
-        h += `<dt>后方排队</dt><dd>${q} 辆</dd></dl>`;
-      } else {
-        h += `<p class="empty">当前无车辆通过。${g.last ? `<br>最近通行：${esc(g.last)}` : ''}</p>`;
+    const [pName, pTone] = PHASE[g.phase];
+    const head = `<header><div><h2>${esc(g.name)}</h2><span class="chip ${pTone}">${pName}</span></div>
+      <button class="x" data-act="close" aria-label="关闭">×</button></header>`;
+    let info;
+    if (c) {
+      const temp = c.type === 'temp';
+      info = `<dl><dt>车牌</dt><dd class="plate">${esc(c.plate)}</dd>
+        <dt>类型</dt><dd><span class="tag ${c.type}">${temp ? '临时车' : '月卡车'}</span></dd>`;
+      if (g.kind === 'out') {
+        info += `<dt>停车时长</dt><dd>${fmtDur(sim.parkMinutes(c))}</dd>`;
+        if (temp) info += `<dt>应付金额</dt><dd class="fee">¥${c.fee}</dd><dt>支付状态</dt><dd>${c.paid ? '已支付' : g.phase === 'reading' ? '计费中' : '未支付'}</dd>`;
+        else info += `<dt>应付金额</dt><dd>月卡免费</dd>`;
       }
-      if (g.pending) h += `<p class="note">已预置：下一辆临时车触发「${sim.ANOMALY[g.pending].name}」</p>`;
-      if (a && c && a.type === 'arrears') {
-        h += `<div class="anomaly"><h3>欠费追缴</h3><p>${esc(sim.ANOMALY.arrears.desc(c))}</p>
-          <button class="btn" data-act="owe">查看欠费详情</button>
-          <button class="btn primary" data-act="recover">追缴 ¥${c.fee + c.arrears.total} 并放行</button>
-          <button class="btn danger" data-act="release">直接开闸放行</button></div>`;
-      } else if (a && c) {
-        h += `<div class="anomaly"><h3>${esc(sim.ANOMALY[a.type].name)}</h3><p>${esc(sim.ANOMALY[a.type].desc(c))}</p>
-          <button class="btn danger" data-act="release">直接开闸放行</button>
-          <div class="fix"><label for="fixAmount">修改支付金额（元）</label>
-          <div class="fix-row"><input id="fixAmount" type="number" min="0" max="999" step="1" inputmode="numeric" value="${Math.max(0, c.fee - 5)}">
-          <button class="btn primary" data-act="adjust">确认并重新缴费</button></div></div></div>`;
-      }
-      h += `<footer>今日通行 <b>${g.stat.count}</b> 辆${g.kind === 'out' ? ` · 收费 <b>¥${g.stat.income}</b>` : ''}</footer>`;
-      el.innerHTML = h;
-      const inp = el.querySelector('#fixAmount');
-      if (inp && keep) { inp.value = keep.v; if (keep.f) inp.focus(); }
+      info += `<dt>后方排队</dt><dd>${q} 辆</dd></dl>`;
+    } else {
+      info = `<p class="empty">${g.fault ? '设备故障，该车道暂停放行。' : '当前无车辆通过。'}${g.last ? `<br>最近通行：${esc(g.last)}` : ''}</p>`;
     }
-    const d = el.querySelector('#pDur');
-    if (d && c) d.textContent = fmtDur(sim.parkMinutes(c));
+    if (g.pending) info += `<p class="note">已预置：下一辆临时车触发「${sim.ANOMALY[g.pending].name}」</p>`;
+    // 处置按钮单独一块：只在异常本身变化时重写，排队数、时长的刷新不会碰到它
+    let act = '';
+    if (a && c && a.type === 'arrears') {
+      act = `<div class="anomaly"><h3>欠费追缴</h3><p>${esc(sim.ANOMALY.arrears.desc(c))}</p>
+        <button class="btn" data-act="owe">查看欠费详情</button>
+        <button class="btn primary" data-act="recover">追缴 ¥${c.fee + c.arrears.total} 并放行</button>
+        <button class="btn danger" data-act="release">直接开闸放行</button></div>`;
+    } else if (a && c) {
+      act = `<div class="anomaly"><h3>${esc(sim.ANOMALY[a.type].name)}</h3><p>${esc(sim.ANOMALY[a.type].desc(c))}</p>
+        <button class="btn danger" data-act="release">直接开闸放行</button>
+        <div class="fix"><label for="fixAmount">修改支付金额（元）</label>
+        <div class="fix-row"><input id="fixAmount" type="number" min="0" max="999" step="1" inputmode="numeric" value="${Math.max(0, c.fee - 5)}">
+        <button class="btn primary" data-act="adjust">确认并重新缴费</button></div></div></div>`;
+    }
+    setParts([['gh', head], ['gi', info], ['ga', act],
+      ['gf', `<footer>今日通行 <b>${g.stat.count}</b> 辆${g.kind === 'out' ? ` · 收费 <b>¥${g.stat.income}</b>` : ''}</footer>`]]);
   }
   $('panel').addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
