@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>园区停车数字孪生</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="view" aria-label="停车场三维场景"></canvas>
+  <div id="hud">
+    <header class="topbar glass">
+      <div class="brand"><h1>园区停车数字孪生</h1><span>A 座办公楼 · 地下两层 · 2 进 2 出</span></div>
+      <div class="stats">
+        <div><span>在场车辆</span><b id="sCars">0</b></div>
+        <div><span>B1 空位</span><b id="sB1">0</b></div>
+        <div><span>B2 空位</span><b id="sB2">0</b></div>
+        <div><span>今日收费</span><b id="sIncome">¥0</b></div>
+        <div><span>活动异常</span><b id="sAlarm">0</b></div>
+      </div>
+      <button id="ctrlToggle" aria-controls="ctrl" aria-expanded="false">控制台</button>
+    </header>
+
+    <aside id="ctrl" class="glass" aria-label="控制台">
+      <section>
+        <h2>环境</h2>
+        <div class="row"><span class="lb">昼夜</span>
+          <div class="seg" data-key="time"><button data-val="day" class="on">白天</button><button data-val="night">夜晚</button></div></div>
+        <div class="row"><span class="lb">天气</span>
+          <div class="seg" data-key="weather"><button data-val="clear" class="on">晴</button><button data-val="rain">雨</button><button data-val="snow">雪</button><button data-val="fog">大雾</button></div></div>
+      </section>
+      <section>
+        <h2>视图</h2>
+        <div class="row"><span class="lb">楼层</span>
+          <div class="seg" data-key="floor"><button data-val="all" class="on">全部</button><button data-val="ground">地面</button><button data-val="b1">B1</button><button data-val="b2">B2</button></div></div>
+        <button id="resetView" class="btn wide">重置视角</button>
+      </section>
+      <section>
+        <h2>仿真</h2>
+        <div class="row"><span class="lb">速度</span>
+          <div class="seg" data-key="speed"><button data-val="0">暂停</button><button data-val="1" class="on">1×</button><button data-val="2">2×</button><button data-val="4">4×</button></div></div>
+      </section>
+      <section>
+        <h2>异常场景</h2>
+        <div class="row"><label for="trigGate">出口</label>
+          <select id="trigGate"><option value="any">随机出口</option><option value="WO">西出口</option><option value="EO">东出口</option></select></div>
+        <button id="trigDispute" class="btn warn wide">触发：费用争议</button>
+        <button id="trigStuck" class="btn warn wide">触发：已缴费未抬杆</button>
+        <div class="row"><label class="check" for="autoOn" style="flex:1"><input id="autoOn" type="checkbox">Auto 按概率自动触发</label></div>
+        <div class="row"><label for="autoProb">概率</label><input id="autoProb" type="range" min="1" max="50" value="15"><output id="autoProbOut" for="autoProb">15%</output></div>
+      </section>
+      <section>
+        <h2>图例</h2>
+        <div class="legend"><span><i style="background:#2fb8ff"></i>月卡车</span><span><i style="background:#ffb02e"></i>临时车</span><span><i style="background:#ff2d44"></i>异常车辆</span></div>
+      </section>
+    </aside>
+
+    <div id="alerts" aria-live="assertive"></div>
+
+    <div class="rightcol">
+      <aside id="panel" class="glass" aria-label="闸机详情" hidden></aside>
+      <section id="log" class="glass"><h2>事件</h2><ul id="logList"></ul></section>
+    </div>
+
+    <p class="hint">左键拖拽旋转 · 右键或 Shift 拖拽平移 · 滚轮缩放 · 点击闸机查看车辆与费用</p>
+    <div id="toast" class="glass" role="status"></div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
