@@ -18,7 +18,10 @@
   (function () {
     const rows = [{ z: 9.5, a: 4 }, { z: -1.5, a: 4 }, { z: -14.5, a: -20 }, { z: -25.5, a: -20 }];
     for (const side of ['W', 'E']) for (const level of [1, 2]) for (const r of rows) for (let k = 0; k < 8; k++) {
+      const no = rows.indexOf(r) * 8 + k + 1;
       PT.SLOTS.push({
+        name: `${level === 1 ? 'B1' : 'B2'}-${side === 'W' ? '西' : '东'}${String(no).padStart(2, '0')}`,
+        charger: r.z === -25.5 || r.z === 9.5,   // 背靠墙的两排车位装充电桩
         id: PT.SLOTS.length, side, level,
         x: (side === 'W' ? -1 : 1) * (9.4 + 2.8 * k),
         y: level === 1 ? C.Y1 : C.Y2, z: r.z, aisleZ: r.a, car: null,
@@ -446,6 +449,21 @@
     grp.add(cols);
 
     // 电梯核心筒
+    // 充电桩：背靠墙的两排车位，每个车位一台，指示灯颜色表示 空闲 / 充电中 / 已充满
+    const ch = slots.filter((s) => s.charger);
+    const wallMat = new T.MeshStandardMaterial({ map: TEX.concrete, color: 0xb8c4d2, transparent: true, opacity: 0.82 });
+    for (const sx of [-1, 1]) for (const wz of [-28.78, 12.78]) box(24, 3.2, 0.3, wallMat, sx * 19.2, y + 1.6, wz, grp);
+    const cBody = new T.InstancedMesh(new T.BoxGeometry(0.5, 1.5, 0.32), new T.MeshStandardMaterial({ color: 0xe6edf5, roughness: 0.5 }), ch.length);
+    const cLight = new T.InstancedMesh(new T.BoxGeometry(0.36, 0.55, 0.08), new T.MeshBasicMaterial(), ch.length);
+    ch.forEach((s, i) => {
+      const d = Math.sign(s.z - s.aisleZ), hz = s.z + d * 2.95;
+      m4.makeTranslation(s.x, y + 0.75, hz); cBody.setMatrixAt(i, m4);
+      m4.makeTranslation(s.x, y + 1.05, hz - d * 0.18); cLight.setMatrixAt(i, m4); cLight.setColorAt(i, CH_COL.idle);
+      s.cLight = cLight; s.cIdx = i;
+    });
+    cLight.instanceColor.needsUpdate = true;
+    grp.add(cBody, cLight);
+
     const core = box(4, 4.6, 16, new T.MeshStandardMaterial({ color: 0x1b4472, transparent: true, opacity: 0.75 }), 0, y + 2.3, -8, grp);
     edges(core, 0x7fe0ff, 0.9);
 
@@ -454,6 +472,11 @@
     lb.ctx.fillStyle = '#7fe0ff'; lb.ctx.fillText(name, 64, 34); lb.tex.needsUpdate = true;
     lb.sp.position.set(-53, y + 2.5, 34); grp.add(lb.sp);
   }
+  const CH_COL = { idle: new T.Color(0x2d6a55), on: new T.Color(0x35e0ff), full: new T.Color(0x7dff9b) };
+  PT.setChargerLight = function (slot, state) {
+    if (!slot.cLight) return;
+    slot.cLight.setColorAt(slot.cIdx, CH_COL[state]); slot.cLight.instanceColor.needsUpdate = true;
+  };
   PT.setSlotLight = function (slot, occupied, temp) {
     slot.light.setColorAt(slot.lightIdx, new T.Color(occupied ? (temp ? 0xffb23e : 0x4c8dff) : 0x3ddc97));
     slot.light.instanceColor.needsUpdate = true;
@@ -633,6 +656,9 @@
     carMat.cab = new T.MeshStandardMaterial({ color: 0x0b1930, roughness: 0.2, metalness: 0.6 });
     carMat.front = new T.MeshBasicMaterial({ color: 0xfff3c4 });
     carMat.rear = new T.MeshBasicMaterial({ color: 0xff3344 });
+    // 选中车辆的高亮圈
+    const ring = (PT.selRing = new T.Mesh(new T.RingGeometry(2.9, 3.4, 48), new T.MeshBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.95, side: T.DoubleSide, depthWrite: false })));
+    ring.rotation.x = -Math.PI / 2; ring.renderOrder = 9; ring.visible = false; scene.add(ring);
     beamMat = new T.MeshBasicMaterial({ map: beamTex, color: 0xfff0c0, transparent: true, opacity: 0, blending: T.AdditiveBlending, depthWrite: false });
   }
   PT.makeCarMesh = function (type) {
@@ -645,6 +671,7 @@
     // 车底柔和暗斑：没有实时阴影时也有贴地感
     const blob = new T.Mesh(carGeo.blob, carMat.blob); blob.position.y = 0.05; blob.renderOrder = 8;
     body.castShadow = cab.castShadow = true; body.receiveShadow = true;
+    beam.userData.noPick = blob.userData.noPick = true;
     g.add(body, cab, f, r, beam, blob);
     g.userData.body = body; g.userData.baseMat = body.material;
     return g;
@@ -727,6 +754,20 @@
       const h = ray.intersectObjects(hitBoxes, false);
       return h.length ? h[0].object.userData.gate : null;
     };
+    // 点选车辆：被不透明楼板挡住的地库车辆不可选
+    PT.pickCar = function (cx, cy) {
+      const r = canvas.getBoundingClientRect();
+      ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      for (const h of ray.intersectObjects(gCars.children, true)) {
+        const grp = h.object.parent, c = grp.userData.car;
+        if (h.object.userData.noPick || !c || !grp.visible) continue;
+        const y = grp.position.y;
+        if (floorMode === 'all' && ((y < -2.5 && !see.ground) || (y < -7.5 && !see.b1))) continue;
+        return c;
+      }
+      return null;
+    };
     const two = () => {
       const [a, b] = [...ptrs.values()];
       return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -739,7 +780,7 @@
     });
     canvas.addEventListener('pointermove', (e) => {
       const p = ptrs.get(e.pointerId);
-      if (!p) { canvas.style.cursor = PT.pick(e.clientX, e.clientY) ? 'pointer' : 'grab'; return; }
+      if (!p) { canvas.style.cursor = PT.pick(e.clientX, e.clientY) || PT.pickCar(e.clientX, e.clientY) ? 'pointer' : 'grab'; return; }
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       p.x = e.clientX; p.y = e.clientY;
       if (ptrs.size === 1 && down) {
@@ -760,7 +801,7 @@
       if (!ptrs.has(e.pointerId)) return;
       ptrs.delete(e.pointerId);
       if (ptrs.size === 0 && down && !down.moved && performance.now() - down.t < 500 && e.type === 'pointerup') {
-        if (PT.onPick) PT.onPick(PT.pick(e.clientX, e.clientY));
+        if (PT.onPick) PT.onPick(PT.pick(e.clientX, e.clientY), PT.pickCar(e.clientX, e.clientY));
       }
       if (ptrs.size === 0) down = null;
     };

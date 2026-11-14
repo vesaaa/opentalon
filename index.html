@@ -51,12 +51,13 @@
           <select id="trigGate"><option value="any">随机出口</option><option value="WO">西出口</option><option value="EO">东出口</option></select></div>
         <button id="trigDispute" class="btn warn wide">触发：费用争议</button>
         <button id="trigStuck" class="btn warn wide">触发：已缴费未抬杆</button>
+        <button id="trigArrears" class="btn warn wide">触发：欠费追缴</button>
         <div class="row"><label class="check" for="autoOn" style="flex:1"><input id="autoOn" type="checkbox">Auto 按概率自动触发</label></div>
         <div class="row"><label for="autoProb">概率</label><input id="autoProb" type="range" min="1" max="50" value="15"><output id="autoProbOut" for="autoProb">15%</output></div>
       </section>
       <section>
         <h2>图例</h2>
-        <div class="legend"><span><i style="background:#2fb8ff"></i>月卡车</span><span><i style="background:#ffb02e"></i>临时车</span><span><i style="background:#ff2d44"></i>异常车辆</span></div>
+        <div class="legend"><span><i style="background:#2fb8ff"></i>月卡车</span><span><i style="background:#ffb02e"></i>临时车</span><span><i style="background:#ff2d44"></i>异常车辆</span><span><i style="background:#35e0ff"></i>充电中</span></div>
       </section>
     </aside>
 
@@ -69,10 +70,12 @@
 
     <p class="hint">左键拖拽旋转 · 右键或 Shift 拖拽平移 · 滚轮缩放 · 点击闸机查看车辆与费用</p>
     <div id="toast" class="glass" role="status"></div>
+    <div id="modal" hidden><div id="modalCard" class="glass" role="dialog" aria-modal="true" aria-label="欠费追缴"></div></div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script src="js/scene.js"></script>
+<script src="js/arrears.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/ui.js"></script>
 </body>

@@ -122,6 +122,60 @@ dd { margin: 0; font-variant-numeric: tabular-nums; }
 #toast { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); max-width: calc(100% - 32px); padding: 8px 14px; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
 #toast.show { opacity: 1; }
 
+/* 车辆充电信息 */
+[hidden] { display: none !important; }
+.charge { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.charge h3 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.charge dl { margin: 10px 0 0; }
+.soc { position: relative; height: 20px; border-radius: 10px; background: rgba(4, 12, 24, 0.9); border: 1px solid var(--line); overflow: hidden; }
+.soc i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #1f9d6b, var(--ok)); }
+.soc b { position: relative; display: block; text-align: center; font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; text-shadow: 0 0 4px #000; }
+
+/* 欠费追缴弹窗 */
+#modal { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(2, 6, 14, 0.6); pointer-events: auto; }
+#modalCard { width: min(100%, 440px); max-height: 100%; overflow: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+#modalCard.wide { width: min(100%, 720px); }
+#modalCard header { display: flex; justify-content: space-between; align-items: center; }
+#modalCard h2 { margin: 0; font-size: 16px; }
+.owe-plate { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.08em; text-align: center; }
+.owe-total { text-align: center; border: 1px solid rgba(255, 77, 94, 0.55); background: rgba(255, 77, 94, 0.1); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; }
+.owe-total span, .owe-split span { color: var(--muted); font-size: 12px; }
+.owe-total b { font-size: 40px; line-height: 1.15; color: #ff7482; font-variant-numeric: tabular-nums; }
+.owe-total small, .owe-split small { color: var(--muted); }
+.owe-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.owe-split div { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; min-width: 0; }
+.owe-split b { font-size: 20px; color: var(--amber); font-variant-numeric: tabular-nums; }
+.owe-note { margin: 0; color: var(--muted); font-size: 12px; }
+.modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.modal-actions .btn { flex: 1 1 auto; width: auto; }
+.map-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.map-bar .seg { flex: 0 1 auto; }
+.map-bar .seg button { padding: 5px 12px; }
+.map-sum { margin-left: auto; color: #ff7482; font-weight: 700; font-variant-numeric: tabular-nums; }
+.map-wrap { border: 1px solid var(--line); border-radius: 8px; background: #06101f; overflow: hidden; }
+.map { display: block; width: 100%; height: auto; font-family: var(--font); }
+.map .grid { stroke: rgba(96, 170, 255, 0.08); stroke-width: 1; }
+.map .land { fill: rgba(40, 96, 160, 0.28); stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.map .place { fill: var(--muted); font-size: 11px; text-anchor: middle; }
+.map .city { fill: var(--muted); }
+.map .home circle { fill: var(--accent); stroke: #fff; stroke-width: 1.5; }
+.map .home text { fill: var(--accent); font-size: 11px; text-anchor: middle; font-weight: 600; }
+.map .pin .dot { fill: rgba(255, 77, 94, 0.85); stroke: #fff; stroke-width: 1.2; }
+.map .pin .pulse { fill: rgba(255, 77, 94, 0.22); }
+.map .pin .tagbg { fill: #3a0a12; stroke: var(--danger); stroke-width: 1; }
+.map .pin .tag { fill: #fff; font-size: 12px; font-weight: 700; text-anchor: middle; }
+.map .pin .lot { fill: #ffd3d8; font-size: 11px; text-anchor: middle; }
+.map .here .dot { fill: rgba(255, 178, 62, 0.9); }
+.map .here .tagbg { fill: #3a2606; stroke: var(--amber); }
+.map .here .lot { fill: #ffe2ae; }
+.table-wrap { overflow-x: auto; }
+.owe-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.owe-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.owe-table td { padding: 5px 8px; border-bottom: 1px solid rgba(96, 170, 255, 0.1); white-space: nowrap; }
+.owe-table .num { text-align: right; color: #ff9aa4; font-weight: 600; }
+.anomaly .btn { width: 100%; }
+.fix-row .btn { width: auto; }
+
 /* 窄屏：控制台折叠，详情变为底部面板 */
 @media (max-width: 860px) {
   #hud { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 8px; }

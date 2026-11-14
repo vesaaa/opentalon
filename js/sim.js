@@ -10,6 +10,7 @@
   const GAP = 5.5;            // 跟车最小中心距
   const ANOMALY = {
     dispute: { name: '费用争议', desc: (c) => `车主对 ¥${c.fee} 的停车费有疑问，拒绝支付，车辆停在出口。` },
+    arrears: { name: '欠费追缴', desc: (c) => `系统检测到该车在联盟停车场有 ${c.arrears.count} 笔欠费，合计 ¥${c.arrears.total}，已拦截出场。` },
     stuck: { name: '已缴费未抬杆', desc: (c) => `车主已支付 ¥${c.fee}，但道闸未收到放行指令，车辆无法出场。` },
   };
 
@@ -177,7 +178,7 @@
       if ((g.timer -= dt) > 0) return;
       const label = c.type === 'monthly' ? '月卡车' : '临时车';
       if (g.kind === 'in') {
-        c.enterT = sim.t; sim.count.in++; g.stat.count++;
+        c.enterT = sim.t; c.entered = true; sim.count.in++; g.stat.count++;
         g.last = `${c.plate} · ${label}`;
         openGate(g, `${label} · 欢迎入场`);
       } else if (c.type === 'monthly') {
@@ -187,14 +188,15 @@
         c.fee = calcFee(c);
         let plan = g.pending;
         g.pending = null;
-        if (!plan && sim.auto && !activeAnomalies().length && Math.random() < sim.autoProb) plan = Math.random() < 0.5 ? 'dispute' : 'stuck';
+        if (!plan && sim.auto && !activeAnomalies().length && Math.random() < sim.autoProb) plan = ['dispute', 'stuck', 'arrears'][(Math.random() * 3) | 0];
         c.plan = plan;
-        g.phase = 'paying'; g.timer = plan === 'dispute' ? 1.2 : rand(2, 3.4);
+        g.phase = 'paying'; g.timer = plan === 'dispute' || plan === 'arrears' ? 1.1 : rand(2, 3.4);
         board(g, c.plate, `¥${c.fee} 待支付`, 'busy');
       }
     } else if (g.phase === 'paying') {
       if ((g.timer -= dt) > 0) return;
       if (c.plan === 'dispute') { c.plan = null; block(g, 'dispute'); return; }
+      if (c.plan === 'arrears') { c.plan = null; c.arrears = PT.arrears.generate(); block(g, 'arrears'); return; }
       c.paid = true; addIncome(g, c.fee);
       if (c.plan === 'stuck') { c.plan = null; block(g, 'stuck'); return; }
       g.last = `${c.plate} · 临时车 ¥${c.fee}`;
@@ -203,7 +205,7 @@
     } else if (g.phase === 'repaying') {
       if ((g.timer -= dt) > 0) return;
       if (!c.paid) { c.paid = true; addIncome(g, c.fee); }
-      g.last = `${c.plate} · 临时车 ¥${c.fee}（改价）`;
+      g.last = `${c.plate} · 临时车 ¥${c.fee}（${c.arrears && c.arrears.paid ? '含追缴' : '改价'}）`;
       log(`${g.name} ${c.plate} 按 ¥${c.fee} 缴费成功，自动放行`, 'ok');
       openGate(g, `已缴 ¥${c.fee} · 一路平安`);
     }
@@ -236,6 +238,16 @@
     g.phase = 'repaying'; g.timer = 2;
     board(g, c.plate, `¥${amount} 重新缴费`, 'busy');
   };
+  // 欠费追缴：把联盟停车场欠费连同本次停车费一并收取后放行
+  sim.recover = function (id) {
+    const g = sim.gates[id], c = g.current;
+    if (!g.anomaly || !c || !c.arrears) return;
+    log(`${g.name} ${c.plate} 追缴欠费 ¥${c.arrears.total}，连同本次 ¥${c.fee} 一并缴纳`, 'ok');
+    c.fee += c.arrears.total; c.arrears.paid = true;
+    clearAnomaly(g);
+    g.phase = 'repaying'; g.timer = 2.2;
+    board(g, c.plate, `¥${c.fee} 追缴中`, 'busy');
+  };
   sim.trigger = function (type, target) {
     let outs = [sim.gates.WO, sim.gates.EO];
     if (target === 'WO' || target === 'EO') outs = [sim.gates[target]];
@@ -244,7 +256,7 @@
     const paying = outs.find((g) => g.phase === 'paying' && g.current && !g.current.plan && !g.current.paid);
     if (paying) {
       paying.current.plan = type;
-      if (type === 'dispute') paying.timer = Math.min(paying.timer, 0.5);
+      if (type !== 'stuck') paying.timer = Math.min(paying.timer, 0.5);
       return `${paying.name}：当前临时车即将触发「${ANOMALY[type].name}」`;
     }
     const g = outs[(Math.random() * outs.length) | 0];
@@ -270,9 +282,9 @@
       id: ++carId, plate: plate(), type, side: slot.side, slot, state: '', path: null, s: 0, v: 0,
       pos: V(0, 0, 0), dir: V(0, 0, 1), tan: V(0, 0, 1), mesh: PT.makeCarMesh(type),
       stopS: null, cleared: false, gate: null, timer: 0, enterT: sim.t, fee: 0, paid: false, plan: null,
-      chain: 0, blockT: 0, ghost: 0, reverse: false,
+      chain: 0, blockT: 0, ghost: 0, reverse: false, charge: null, entered: false,
     };
-    slot.car = c;
+    slot.car = c; c.mesh.userData.car = c;
     PT.groups.cars.add(c.mesh);
     sim.cars.push(c);
     return c;
@@ -282,11 +294,32 @@
     c.stopS = gate ? path.locate(gate.stop) : null;
     path.at(0, c.pos, c.tan);
   }
-  function placeParked(c) {
+  /* ---------- 充电 ---------- */
+  const KW = [7, 7, 11, 40];
+  function startCharge(c, t0) {
+    c.charge = { kw: KW[(Math.random() * KW.length) | 0], cap: 60, soc0: Math.round(rand(12, 65)), t0, t1: null, lit: 'on' };
+    PT.setChargerLight(c.slot, 'on');
+  }
+  function stopCharge(c) {
+    if (c.charge && c.charge.t1 == null) c.charge.t1 = sim.t;
+    PT.setChargerLight(c.slot, 'idle');
+  }
+  sim.chargeInfo = function (c) {
+    const g = c.charge;
+    if (!g) return null;
+    const hrs = Math.max(0, ((g.t1 == null ? sim.t : g.t1) - g.t0) * MIN_PER_SEC / 60);
+    const need = g.cap * (100 - g.soc0) / 100, kwh = Math.min(g.kw * hrs, need), full = kwh >= need - 1e-6;
+    return {
+      kw: g.kw, soc: Math.round(g.soc0 + (kwh / g.cap) * 100), soc0: g.soc0, kwh: kwh.toFixed(1), fee: (kwh * 1.2).toFixed(1),
+      full, active: g.t1 == null && !full, ended: g.t1 != null, minutes: Math.round(Math.min(hrs, need / g.kw) * 60),
+    };
+  };
+  function placeParked(c, t0) {
     const s = c.slot;
     c.state = 'parked'; c.v = 0; c.chain = 0; c.reverse = false;
     c.pos.set(s.x, s.y, s.z); c.dir.set(0, 0, Math.sign(s.z - s.aisleZ));
     PT.setSlotLight(s, true, c.type === 'temp');
+    if (s.charger && Math.random() < 0.6) startCharge(c, t0 == null ? sim.t : t0);
   }
   function trySpawn() {
     for (const o of sim.cars) if (o.state === 'arriving' && o.pos.x > 96) return;
@@ -337,7 +370,7 @@
   function updateCar(c, dt) {
     if (c.state === 'parked') {
       c.timer -= dt;
-      if (c.timer <= 0 && aisleClear(c, 20)) { c.state = 'backing'; c.reverse = true; setPath(c, slotPaths(c.slot).back, null); }
+      if (c.timer <= 0 && aisleClear(c, 20)) { stopCharge(c); c.state = 'backing'; c.reverse = true; setPath(c, slotPaths(c.slot).back, null); }
       return;
     }
     const p = c.path;
@@ -413,7 +446,7 @@
   }
 
   /* ---------- 对外接口 ---------- */
-  let spawnT = 1;
+  let spawnT = 1, chargeT = 1;
   sim.init = function () {
     makeGate('WI', '西入口', 'W', 'in'); makeGate('WO', '西出口', 'W', 'out');
     makeGate('EI', '东入口', 'E', 'in'); makeGate('EO', '东出口', 'E', 'out');
@@ -421,8 +454,8 @@
     const pool = PT.SLOTS.slice().sort(() => Math.random() - 0.5).slice(0, 56);
     for (const s of pool) {
       const c = newCar(Math.random() < 0.6 ? 'monthly' : 'temp', s);
-      c.enterT = -rand(20, 230); c.timer = rand(3, 150);
-      placeParked(c);
+      c.enterT = -rand(20, 230); c.timer = rand(3, 150); c.entered = true;
+      placeParked(c, c.enterT);
     }
     initDecor();
   };
@@ -434,6 +467,12 @@
       const c = sim.cars[i];
       updateCar(c, dt);
       if (c.dead) removeCar(c);
+    }
+    if ((chargeT -= dt) <= 0) {
+      chargeT = 1;
+      for (const c of sim.cars) {
+        if (c.state === 'parked' && c.charge && c.charge.lit === 'on' && sim.chargeInfo(c).full) { c.charge.lit = 'full'; PT.setChargerLight(c.slot, 'full'); }
+      }
     }
     for (const d of decor) { d.m.position.x += d.v * dt; if (d.m.position.x > 150) d.m.position.x = -150; }
   };
@@ -450,6 +489,9 @@
       c.mesh.lookAt(look);
       c.mesh.visible = PT.carVisible(c.pos.y);
     }
+    const sc = sim.selCar, ring = PT.selRing;
+    ring.visible = !!sc && !sc.dead && sc.mesh.visible;
+    if (ring.visible) { ring.position.set(sc.pos.x, sc.pos.y + 0.16, sc.pos.z); ring.scale.setScalar(1 + 0.06 * Math.sin(now * 0.006)); }
     for (const id in sim.gates) {
       const g = sim.gates[id], v = g.vis;
       v.pivot.rotation.z = v.dirX * g.openAmt * 1.45;
@@ -462,5 +504,7 @@
       }
     }
   };
+  sim.feeNow = calcFee;
+  sim.selCar = null;
   sim.freeSlots = (level) => PT.SLOTS.filter((s) => s.level === level && !s.car).length;
 })();
